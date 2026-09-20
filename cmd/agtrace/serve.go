@@ -131,7 +131,7 @@ func serve(host string, port int) error {
 			// another window; a copy saved out of the browser gets neither, because
 			// there is no server behind it to answer.
 			Version:   version.String(),
-			Back:      backHref(a.ID, q.Get("q")),
+			Back:      backHref(a.ID, q.Get("q"), q.Get("sort"), q.Get("dir")),
 			BackLabel: a.Name + " sessions",
 			Ranges:    ranges,
 			Quick:     quick,
@@ -362,14 +362,16 @@ func shortDur(d time.Duration) string {
 	return fmt.Sprintf("%ds", int(d.Seconds()))
 }
 
-// backHref points a session page back at the list it came from, filter
-// included: the index puts its search query on each session link so that the
-// way back lands on the same rows.
-func backHref(agentID, q string) string {
+// backHref points a session page back at the list it came from, filter and
+// order included: the index puts both on every session link, so the way back
+// lands on the rows you were looking at, in the order you were reading them.
+func backHref(agentID, q, sort, dir string) string {
 	v := url.Values{}
 	v.Set("agent", agentID)
-	if q != "" {
-		v.Set("q", q)
+	for k, val := range map[string]string{"q": q, "sort": sort, "dir": dir} {
+		if val != "" {
+			v.Set(k, val)
+		}
 	}
 	return "/?" + v.Encode()
 }
@@ -418,6 +420,37 @@ func (c *totalsCache) fill(sessions []claudecode.Session) {
 	}
 }
 
+// sortKeys is what the listing's script orders by, in the order the headers
+// declare: tokens, cost, started, last touched, size.
+//
+// Every one of those cells is rendered for reading rather than for comparing
+// — "1.4B", "$771.71", "117.3M", "2026-09-17 11:48" — and sorting that text
+// puts 1.4B below 336k. An empty field is a value the transcript does not
+// have, which the script sorts last in both directions rather than reading an
+// em dash as a zero; 71 of the 95 surveyed sessions state no cost, so that is
+// the common case.
+func sortKeys(s claudecode.Session) string {
+	tokens := ""
+	if s.Totals != nil {
+		tokens = strconv.Itoa(s.Totals.Total())
+	}
+	cost := ""
+	if s.CostUSD != nil {
+		cost = strconv.FormatFloat(*s.CostUSD, 'f', -1, 64)
+	}
+	started := ""
+	if s.HasFirst {
+		started = strconv.FormatInt(s.First.Unix(), 10)
+	}
+	return strings.Join([]string{
+		tokens,
+		cost,
+		started,
+		strconv.FormatInt(s.ModTime.Unix(), 10),
+		strconv.FormatInt(s.Size, 10),
+	}, "|")
+}
+
 type indexData struct {
 	ThemeCSS template.CSS
 	ThemeJS  template.JS
@@ -453,7 +486,8 @@ var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
 		}
 		return fmt.Sprintf("$%.2f", *c)
 	},
-	"when": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+	"when":     func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+	"sortKeys": sortKeys,
 	// Started is the transcript's own first timestamp, which is UTC — unlike
 	// the mtime beside it. It is missing when nothing in the head of the file
 	// carried one.
@@ -510,6 +544,15 @@ th:first-child,td:first-child,th:last-child,td:last-child{text-align:left}
 /* Text reads from the left wherever it sits; only the figures are right-aligned. */
 th.t-nt,td.nt{text-align:left}
 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:500}
+/* A sortable header says so before it is pressed: an arrow that only appears
+   once a column is active leaves the other four looking like plain labels. */
+th[data-sort]{cursor:pointer;user-select:none}
+th[data-sort]:hover{color:var(--ink-2)}
+th[data-sort]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+th[data-sort]::after{content:"\2195";margin-left:5px;opacity:.3}
+th[data-sort][data-dir]{color:var(--ink)}
+th[data-sort][data-dir="desc"]::after{content:"\2193";opacity:1}
+th[data-sort][data-dir="asc"]::after{content:"\2191";opacity:1}
 tr:last-child td{border-bottom:0}
 /* One column, two lines: what the CLI calls the session over what the model
    called it. They are different fields and the heading says so, but stacking
@@ -568,10 +611,13 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
 </div>
 <div class="scroll">
 <table id="sessions"><thead><tr>
-  <th class="t-nt" title="Two fields, one column: the name is what the CLI calls the session — its agent-name entry — and the title is what the model called it. Often different values, and either can be missing.">Name / title</th><th>Tokens</th><th>Cost</th><th title="The transcript's first timestamp.">Started</th><th>Last touched</th><th>Size</th>
+  <th class="t-nt" title="Two fields, one column: the name is what the CLI calls the session — its agent-name entry — and the title is what the model called it. Often different values, and either can be missing.">Name / title</th>
+  <th data-sort="tokens">Tokens</th><th data-sort="cost">Cost</th>
+  <th data-sort="started" title="The transcript's first timestamp.">Started</th>
+  <th data-sort="touched">Last touched</th><th data-sort="size">Size</th>
   <th>Working directory</th>
 </tr></thead><tbody>
-{{range .Sessions}}<tr data-s="{{.Title}}|{{.Name}}|{{.CWD}}|{{.ID}}">
+{{range .Sessions}}<tr data-s="{{.Title}}|{{.Name}}|{{.CWD}}|{{.ID}}" data-n="{{sortKeys .}}">
   <td class="nt">
     <div class="nm">{{if live .}}<span class="dot" title="touched in the last two minutes"></span>{{end}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{with .Name}}{{.}}{{else}}{{short .ID}}{{end}}</a></div>
     <div class="ti">{{with .Title}}{{.}}{{end}}</div>
@@ -604,6 +650,9 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
   addEventListener("resize", markClipped);
 
   var q = document.getElementById("q"), count = document.getElementById("count");
+  var tbody = document.querySelector("#sessions tbody");
+  // Document order is the order the server sent: newest touched first. It is
+  // the fallback for an unsorted view and the tie-break within a sorted one.
   var rows = Array.prototype.slice.call(document.querySelectorAll("#sessions tbody tr"));
   var total = rows.length;
   // Each row's fields, kept apart: title, name, directory, id.
@@ -640,6 +689,78 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     }
     return true;
   }
+  // The columns the headers declare, in the order sortKeys writes them.
+  var SORTS = ["tokens", "cost", "started", "touched", "size"];
+  var keys = rows.map(function (r) {
+    return (r.getAttribute("data-n") || "").split("|").map(function (v) {
+      return v === "" ? null : Number(v);
+    });
+  });
+  var sortCol = "", sortDesc = true;
+
+  function reorder() {
+    var col = SORTS.indexOf(sortCol);
+    var seq = rows.map(function (_, i) { return i; });
+    if (col >= 0) {
+      seq.sort(function (a, b) {
+        var x = keys[a][col], y = keys[b][col];
+        // A session with no cost snapshot, or one whose transcript was never
+        // scanned, goes last whichever way the arrow points: an em dash is
+        // not a zero, and it must not float to the top when the order flips.
+        // Two thirds of the rows have no cost, so this is the common case.
+        if (x === null) return y === null ? a - b : 1;
+        if (y === null) return -1;
+        // Ties keep the order the server sent, so a sort never shuffles rows
+        // it has nothing to say about.
+        if (x === y) return a - b;
+        return sortDesc ? y - x : x - y;
+      });
+    }
+    // Re-appending a row that is already there moves it, so this reorders in
+    // place and leaves the hidden ones hidden.
+    seq.forEach(function (i) { tbody.appendChild(rows[i]); });
+
+    document.querySelectorAll("#sessions th[data-sort]").forEach(function (th) {
+      if (th.getAttribute("data-sort") === sortCol) {
+        th.setAttribute("data-dir", sortDesc ? "desc" : "asc");
+        th.setAttribute("aria-sort", sortDesc ? "descending" : "ascending");
+      } else {
+        th.removeAttribute("data-dir");
+        th.removeAttribute("aria-sort");
+      }
+    });
+  }
+
+  // Three states, because two cannot get back to where you started: biggest
+  // and most recent first, which is what somebody sorting by cost or by size
+  // is looking for; then the other way; then off, to the order the server
+  // sent. Without the third click "newest touched first" would be reachable
+  // only by sorting a column that happens to mean it.
+  function sortBy(col) {
+    if (col !== sortCol) {
+      sortCol = col;
+      sortDesc = true;
+    } else if (sortDesc) {
+      sortDesc = false;
+    } else {
+      sortCol = "";
+    }
+    reorder();
+    apply();
+  }
+
+  document.querySelectorAll("#sessions th[data-sort]").forEach(function (th) {
+    th.tabIndex = 0;
+    th.setAttribute("role", "button");
+    th.addEventListener("click", function () { sortBy(th.getAttribute("data-sort")); });
+    th.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        sortBy(th.getAttribute("data-sort"));
+      }
+    });
+  });
+
   function apply() {
     var query = q.value.trim().toLowerCase();
     var shown = 0;
@@ -647,21 +768,36 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
       var ok = !query || matches(query, hay[i]);
       r.hidden = !ok;
       if (ok) shown++;
-      // Carry the query into the session link, so its back link returns to
-      // this filtered list rather than to the full one.
+      // Carry the query and the order into the session link, so its back
+      // link returns to the rows you were looking at, as you were reading
+      // them, rather than to the full list in its default order.
       var a = r.querySelector("td.nt a");
       if (a) {
         var href = new URL(a.getAttribute("href"), location.href);
-        if (query) href.searchParams.set("q", q.value.trim()); else href.searchParams.delete("q");
+        setState(href.searchParams, query);
         a.setAttribute("href", href.pathname + href.search);
       }
     });
     count.textContent = query ? shown + " of " + total : total + " sessions";
-    // Keep the query in the URL so the browser's back button, and a reload,
-    // land on the same list. replaceState, so typing does not pile up history.
+    // Keep the query and the order in the URL so the browser's back button,
+    // and a reload, land on the same list. replaceState, so typing does not
+    // pile up history.
     var url = new URL(location.href);
-    if (query) url.searchParams.set("q", q.value.trim()); else url.searchParams.delete("q");
+    setState(url.searchParams, query);
     try { history.replaceState(null, "", url); } catch (e) {}
+  }
+
+  // One writer for both the address bar and every session link, so the two
+  // cannot drift into describing different views.
+  function setState(params, query) {
+    if (query) params.set("q", q.value.trim()); else params.delete("q");
+    if (sortCol) {
+      params.set("sort", sortCol);
+      params.set("dir", sortDesc ? "desc" : "asc");
+    } else {
+      params.delete("sort");
+      params.delete("dir");
+    }
   }
   q.addEventListener("input", apply);
   document.addEventListener("keydown", function (e) {
@@ -669,8 +805,13 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); }
     if (e.key === "Escape" && document.activeElement === q) { q.value = ""; apply(); q.blur(); }
   });
-  var initial = new URL(location.href).searchParams.get("q");
-  if (initial) q.value = initial;
+  var at = new URL(location.href).searchParams;
+  if (at.get("q")) q.value = at.get("q");
+  if (SORTS.indexOf(at.get("sort")) >= 0) {
+    sortCol = at.get("sort");
+    sortDesc = at.get("dir") !== "asc";
+  }
+  reorder();
   apply();
 })();
 </script>

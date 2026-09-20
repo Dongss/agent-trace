@@ -3,10 +3,14 @@ package main
 import (
 	"net"
 	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Dongss/agent-trace/internal/event"
+	"github.com/Dongss/agent-trace/internal/reader/claudecode"
 )
 
 func stepAt(seq int, t time.Time) event.Step {
@@ -132,6 +136,73 @@ func TestLANIPsAreReachableFromElsewhere(t *testing.T) {
 		}
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
 			t.Errorf("%v is not an address to hand to anybody", ip)
+		}
+	}
+}
+
+// Every sortable cell is rendered for reading rather than for comparing —
+// "1.4B", "$771.71", "117.3M" — so the row carries the raw value for the
+// script to order by. Sorting the text would put 1.4B below 336k.
+func TestSortKeysCarryRawValues(t *testing.T) {
+	cost := 771.71
+	started := time.Date(2026, 8, 24, 14, 24, 0, 0, time.UTC)
+	touched := time.Date(2026, 9, 17, 18, 2, 0, 0, time.UTC)
+	s := claudecode.Session{
+		Totals:  &claudecode.Totals{Tokens: event.Usage{Input: 1, CacheRead: 2, CacheWrite: 3, Output: 4}},
+		CostUSD: &cost,
+		First:   started, HasFirst: true,
+		ModTime: touched,
+		Size:    123456789,
+	}
+	got := sortKeys(s)
+	want := []string{
+		"10", "771.71",
+		strconv.FormatInt(started.Unix(), 10),
+		strconv.FormatInt(touched.Unix(), 10),
+		"123456789",
+	}
+	if fields := strings.Split(got, "|"); !slices.Equal(fields, want) {
+		t.Errorf("sortKeys = %q, want %q", fields, strings.Join(want, "|"))
+	}
+}
+
+// A session with no cost snapshot, or one whose transcript was never scanned,
+// has no value at all — 71 of the 95 surveyed sessions state no cost. The
+// field is left empty so the script can sort those last in both directions
+// rather than treating an em dash as a zero.
+func TestSortKeysLeaveMissingValuesEmpty(t *testing.T) {
+	got := sortKeys(claudecode.Session{ModTime: time.Unix(1700000000, 0), Size: 42})
+	fields := strings.Split(got, "|")
+	if len(fields) != 5 {
+		t.Fatalf("sortKeys = %q, want five fields", got)
+	}
+	for i, name := range []string{"tokens", "cost", "started"} {
+		if fields[i] != "" {
+			t.Errorf("%s = %q with nothing to report, want empty", name, fields[i])
+		}
+	}
+	// The two a listing always has stay filled: every file has an mtime and a
+	// size, so those columns never sort anything to the bottom.
+	if fields[3] != "1700000000" || fields[4] != "42" {
+		t.Errorf("touched/size = %q/%q, want 1700000000/42", fields[3], fields[4])
+	}
+}
+
+// The order is part of the view, so the way back carries it beside the filter.
+func TestBackHrefCarriesFilterAndOrder(t *testing.T) {
+	for _, tc := range []struct {
+		q, sort, dir string
+		want         []string
+	}{
+		{"", "", "", []string{"agent=claude-code"}},
+		{"vme", "", "", []string{"agent=claude-code", "q=vme"}},
+		{"vme", "cost", "desc", []string{"agent=claude-code", "dir=desc", "q=vme", "sort=cost"}},
+		{"", "size", "asc", []string{"agent=claude-code", "dir=asc", "sort=size"}},
+	} {
+		got := backHref("claude-code", tc.q, tc.sort, tc.dir)
+		want := "/?" + strings.Join(tc.want, "&")
+		if got != want {
+			t.Errorf("backHref(%q, %q, %q) = %q, want %q", tc.q, tc.sort, tc.dir, got, want)
 		}
 	}
 }

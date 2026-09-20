@@ -457,13 +457,29 @@ produce a timeline that looks right and is wrong.
   it is the one cell that must say something ("not recorded") even when it is
   not clipped — so a second, styled box of our own showed two tooltips at once.
 
+- **A sortable column sorts the value, not the cell.** Every sortable cell is
+  rendered for reading rather than for comparing — "1.4B", "$771.71",
+  "117.3M", "2026-09-17 11:48" — and ordering that text puts 1.4B below 336k
+  and 10K below 6K. Each row carries the raw numbers in `data-n`, the way it
+  already carries the search fields in `data-s`. A missing value is an empty
+  field, and the script sorts those last in *both* directions: 71 of the 95
+  surveyed sessions state no cost, so reading an em dash as a zero would bury
+  the rows that do — and floating them to the top when the arrow flips would
+  be worse. Ties keep the order the server sent, so a sort never shuffles rows
+  it has nothing to say about. A header cycles through three states rather
+  than two — descending, ascending, off — because two cannot get back to where
+  you started: the order the server sent is newest touched first, and without
+  a third click it would be reachable only by sorting the one column that
+  happens to mean it.
+
 - **The list is searched fuzzily, in the browser, and the filter survives the
   round trip.** Matching is subsequence-in-order per word, the way a file finder
   works, so a few letters of a non-ASCII title or `srvhub` for `service-hub`
   both hit; a substring always counts. The query lives in `?q=` via
-  `replaceState`, each session link carries it, and the session page's back link
-  is built from it — so back means back to the rows you were looking at, not to
-  all of them.
+  `replaceState`, with `?sort=` and `?dir=` beside it, and one writer puts all
+  three on the address bar and on every session link so the two cannot drift.
+  The session page's back link is built from them — so back means back to the
+  rows you were looking at, in the order you were reading them.
 
 ## Shipping
 

@@ -38,6 +38,20 @@ func serve(host string, port int) error {
 		return fmt.Errorf("listening on %s: %w", addr, err)
 	}
 
+	// One line per address and nothing else: everything this could say is on
+	// the page it points at.
+	for _, u := range listenURLs(ln.Addr(), host, lanIPs()) {
+		fmt.Println(u)
+	}
+	srv := &http.Server{Handler: newMux(defaultAgent), ReadHeaderTimeout: 10 * time.Second}
+	return srv.Serve(ln)
+}
+
+// newMux is the whole site: the listing, and one page per session. It is
+// separate from serve so the handlers can be exercised without a socket. The
+// agent it is given carries its own Root, which is how a test points the
+// handlers at a directory of its own making.
+func newMux(defaultAgent agent.Agent) *http.ServeMux {
 	totals := newTotalsCache()
 
 	// resolve picks the agent for a request, falling back to the one the
@@ -50,6 +64,11 @@ func serve(host string, port int) error {
 		a, err := agent.Lookup(id)
 		if err != nil {
 			return agent.Agent{}, err
+		}
+		// The agent the server was built with may carry a root of its own,
+		// which is how a test points the handlers at a directory it made.
+		if id == defaultAgent.ID {
+			a.Root = defaultAgent.Root
 		}
 		return a, nil
 	}
@@ -145,13 +164,7 @@ func serve(host string, port int) error {
 		_, _ = w.Write(page)
 	})
 
-	// One line per address and nothing else: everything this could say is on
-	// the page it points at.
-	for _, u := range listenURLs(ln.Addr(), host, lanIPs()) {
-		fmt.Println(u)
-	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	return srv.Serve(ln)
+	return mux
 }
 
 // listenURLs is what to open, given what the listener actually bound to.

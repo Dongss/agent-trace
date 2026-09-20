@@ -1,0 +1,49 @@
+# Runs the tests on every push to main and every pull request targeting it.
+#
+# release.yml runs the same matrix before publishing. The duplication is
+# deliberate: that gate is about what ships, this one is about what is on main
+# right now.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      # Report every platform, not just the first to break: which ones fail is
+      # the useful part when a failure is platform-specific.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      # The suite must pass with no agent CLI and no account present, which is
+      # exactly what a fresh runner is: TestRealTranscripts and the scan
+      # benchmark skip themselves when there are no transcripts to read.
+      - name: Test
+        run: go test ./...
+
+      # The race detector needs a C toolchain, which is dependable on Linux and
+      # fiddly elsewhere; one platform running it is enough to catch a data race.
+      - name: Test with the race detector
+        if: matrix.os == 'ubuntu-latest'
+        run: go test -race ./...

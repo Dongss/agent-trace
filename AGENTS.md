@@ -478,6 +478,17 @@ produce a timeline that looks right and is wrong.
   machines and be the wrong half of it on the rest. A host that was named is
   repeated back as typed: it is what the reader chose.
 
+- **The coverage badge lives in a gist, and the job is never fatal.** The
+  number is a shields.io endpoint document in a gist rather than anywhere in
+  this repository. It was an orphan `badges` branch first, which needed no
+  token at all, and it lasted until the first branch cleanup swept it up as
+  debris — from a branch list it looked exactly like one. A gist cannot be
+  mistaken for a stale feature branch. The price is a PAT with `gist` scope in
+  the `GIST_TOKEN` secret, because the built-in `GITHUB_TOKEN` cannot write to
+  a gist; and because that secret can be missing, absent on a fork, or
+  rate-limited, the job exits 0 on every one of those. A stale badge must not
+  turn main red.
+
 - **The version is stamped, not hard-coded twice.** `internal/version` holds
   `Version` and a release overrides it with
   `-X github.com/Dongss/agent-trace/internal/version.Version=<tag>` — the

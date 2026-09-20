@@ -1,5 +1,10 @@
 # agent-trace
 
+[![license](https://img.shields.io/github/license/Dongss/agent-trace)](LICENSE)
+[![version](https://img.shields.io/github/v/release/Dongss/agent-trace?label=version)](https://github.com/Dongss/agent-trace/releases/latest)
+[![CI](https://github.com/Dongss/agent-trace/actions/workflows/ci.yml/badge.svg)](https://github.com/Dongss/agent-trace/actions/workflows/ci.yml)
+![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Dongss/agent-trace/badges/coverage.json)
+
 A local dashboard for agent CLI sessions.
 
 ![screenshot-claude-code](/docs/assets/screenshot-claude-code.png)
@@ -27,22 +32,15 @@ irm https://raw.githubusercontent.com/Dongss/agent-trace/main/scripts/install.ps
 ## Quick start
 
 ```sh
+# quick start
 agtrace
-# or
-agtrace --host 0.0.0.0 --port 7391
-```
 
-`agtrace --help` lists the flags; `agtrace --version` prints the build.
-
-## Updating
-
-```sh
+# update agtrace to latest version
 agtrace update
-```
 
-Downloads the latest release for this platform, checks it against the published
-SHA-256 sums, and swaps it in place. Nothing on disk changes until the download
-has been verified, so a failure leaves the version you have exactly as it was.
+# help
+agtrace --help
+```
 
 ## Development
 
@@ -53,11 +51,6 @@ go vet ./...
 
 scripts/build.sh     # -> ./agtrace, stamped from the git tag
 ```
-
-A release is a tag: `git tag v0.1.0 && git push origin v0.1.0`.
-[`.github/workflows/release.yml`](.github/workflows/release.yml) runs the tests
-on macOS, Linux and Windows and then lets GoReleaser build and publish the
-archives. `goreleaser release --snapshot --clean` tries it without tagging.
 
 Tests cover constructed transcript shapes, plus the real ones on this machine
 when there are any — so a CLI format change fails loudly.

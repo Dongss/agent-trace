@@ -47,3 +47,64 @@ jobs:
       - name: Test with the race detector
         if: matrix.os == 'ubuntu-latest'
         run: go test -race ./...
+
+  # Rewrites the shields.io endpoint document the README's badge points at.
+  #
+  # Three deliberate choices. It runs only on pushes to main, because a pull
+  # request must not move the badge: its head is not what the README describes.
+  # It writes to an orphan `badges` branch in this repository rather than to a
+  # gist, so nothing needs a personal access token — the built-in GITHUB_TOKEN
+  # is enough, and ci.yml does not watch that branch, so the push cannot loop.
+  # And it is never fatal: a hiccup here must not turn main red.
+  #
+  # -coverpkg=./... measures the whole module rather than each package against
+  # its own tests: internal/event carries no test files of its own but is
+  # exercised by every package above it, and per-package counting scores that
+  # as zero.
+  coverage:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Measure and publish
+        run: |
+          set -euo pipefail
+          go test -coverpkg=./... -coverprofile=coverage.out ./... >/dev/null
+          pct=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "total coverage: ${pct}%"
+          whole=${pct%%.*}
+          if   [ "$whole" -ge 85 ]; then color=brightgreen
+          elif [ "$whole" -ge 70 ]; then color=green
+          elif [ "$whole" -ge 55 ]; then color=yellowgreen
+          elif [ "$whole" -ge 40 ]; then color=yellow
+          else                           color=orange
+          fi
+
+          tmp=$(mktemp -d)
+          git -C "$tmp" init -q
+          git -C "$tmp" remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git -C "$tmp" fetch -q --depth 1 origin badges
+          git -C "$tmp" checkout -q FETCH_HEAD -- . 2>/dev/null || true
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > "$tmp/coverage.json"
+
+          # Nothing to say when the number has not moved.
+          git -C "$tmp" add coverage.json
+          if git -C "$tmp" diff --cached --quiet --exit-code FETCH_HEAD -- coverage.json 2>/dev/null; then
+            echo "unchanged at ${pct}%"
+            exit 0
+          fi
+          git -C "$tmp" -c user.name=github-actions[bot] \
+            -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -q -m "chore: coverage ${pct}%"
+          git -C "$tmp" push -q origin HEAD:badges
+          echo "badge updated: ${pct}% (${color})"

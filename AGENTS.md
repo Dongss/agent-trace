@@ -478,6 +478,16 @@ produce a timeline that looks right and is wrong.
   machines and be the wrong half of it on the rest. A host that was named is
   repeated back as typed: it is what the reader chose.
 
+- **The `badges` branch is not debris, and it is deletable.** The coverage
+  badge reads a shields.io endpoint document from an orphan `badges` branch of
+  this repository, so publishing it needs no gist and no personal access token
+  — the built-in `GITHUB_TOKEN` can write there, and `ci.yml` does not watch
+  that branch, so the push cannot loop. The cost is that it looks like leftover
+  debris in a branch list, and it was swept up in a cleanup once, which is what
+  "resource not found" on the badge means. The branch carries a README saying
+  so, and the job recreates it when it is missing rather than failing, so the
+  badge heals on the next push to main.
+
 - **The version is stamped, not hard-coded twice.** `internal/version` holds
   `Version` and a release overrides it with
   `-X github.com/Dongss/agent-trace/internal/version.Version=<tag>` — the

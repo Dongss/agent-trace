@@ -96,10 +96,17 @@ jobs:
           tmp=$(mktemp -d)
           git -C "$tmp" init -q
           git -C "$tmp" remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git -C "$tmp" fetch -q --depth 1 origin badges
           # Start from the branch tip, so the commit below is a child of it and
-          # the push fast-forwards rather than being rejected as unrelated.
-          git -C "$tmp" checkout -q -B badges FETCH_HEAD
+          # the push fast-forwards rather than being rejected as unrelated. The
+          # branch is easy to delete by mistake — it looks like debris in a
+          # branch list — so a missing one is recreated here rather than
+          # failing the job, and the badge heals on the next push to main.
+          if git -C "$tmp" fetch -q --depth 1 origin badges 2>/dev/null; then
+            git -C "$tmp" checkout -q -B badges FETCH_HEAD
+          else
+            echo "the badges branch is missing; recreating it"
+            git -C "$tmp" checkout -q -B badges
+          fi
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > "$tmp/coverage.json"
 
           # Nothing to say when the number has not moved.

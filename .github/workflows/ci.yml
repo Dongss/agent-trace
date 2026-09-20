@@ -60,7 +60,10 @@ jobs:
   # -coverpkg=./... measures the whole module rather than each package against
   # its own tests: internal/event carries no test files of its own but is
   # exercised by every package above it, and per-package counting scores that
-  # as zero.
+  # as zero. The number is lower here than on a developer's machine —
+  # TestRealTranscripts and the scan benchmark skip themselves when there are
+  # no transcripts to read — and the runner's figure is the one worth
+  # publishing, because it is the one anybody can reproduce.
   coverage:
     needs: test
     if: github.event_name == 'push'
@@ -94,17 +97,19 @@ jobs:
           git -C "$tmp" init -q
           git -C "$tmp" remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git -C "$tmp" fetch -q --depth 1 origin badges
-          git -C "$tmp" checkout -q FETCH_HEAD -- . 2>/dev/null || true
+          # Start from the branch tip, so the commit below is a child of it and
+          # the push fast-forwards rather than being rejected as unrelated.
+          git -C "$tmp" checkout -q -B badges FETCH_HEAD
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > "$tmp/coverage.json"
 
           # Nothing to say when the number has not moved.
           git -C "$tmp" add coverage.json
-          if git -C "$tmp" diff --cached --quiet --exit-code FETCH_HEAD -- coverage.json 2>/dev/null; then
+          if git -C "$tmp" diff --cached --quiet; then
             echo "unchanged at ${pct}%"
             exit 0
           fi
-          git -C "$tmp" -c user.name=github-actions[bot] \
-            -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+          git -C "$tmp" -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -q -m "chore: coverage ${pct}%"
-          git -C "$tmp" push -q origin HEAD:badges
+          git -C "$tmp" push -q origin badges
           echo "badge updated: ${pct}% (${color})"

@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# built binary
+/agtrace
+
+# goreleaser output
+/dist/
+
+# macOS
+.DS_Store

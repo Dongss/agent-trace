@@ -1,0 +1,49 @@
+/* The palette, and the toggle that switches it. Shared by every page agtrace
+   produces, so the reader's choice means the same thing on all of them.
+
+   Light values sit on bare :root. The dark set is declared twice: once under
+   the OS media query, guarded so an explicit light choice still wins, and once
+   under the data-theme scope, so the page's own toggle wins in both
+   directions. No colour is defined only inside a media query. */
+:root {
+  color-scheme: light;
+  --surface-1:#fcfcfb; --plane:#f9f9f7;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --s-read:#2a78d6; --s-write:#eb6834; --s-in:#1baf7a;
+  --s-out:#52514e;
+  --st-ok:#0ca30c; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#d03b3b;
+  /* UI chrome, not a series: a selected tab is not data. Same hue as the first
+     categorical slot, named apart so the two cannot be confused. */
+  --accent:#2a78d6;
+  --shadow:0 1px 2px rgba(11,11,11,.06), 0 8px 24px rgba(11,11,11,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s-read:#3987e5; --s-write:#d95926; --s-in:#199e70;
+    --s-out:#c3c2b7;
+    --accent:#3987e5;
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1:#1a1a19; --plane:#0d0d0d;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s-read:#3987e5; --s-write:#d95926; --s-in:#199e70;
+  --s-out:#c3c2b7;
+  --accent:#3987e5;
+  --shadow:none;
+}
+
+button.toggle {
+  font:inherit; font-size:12px; cursor:pointer; color:var(--ink-2);
+  background:var(--surface-1); border:1px solid var(--border);
+  border-radius:999px; padding:3px 11px;
+}
+button.toggle:hover { color:var(--ink); border-color:var(--ink-2); }

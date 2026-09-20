@@ -1,0 +1,1084 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>agtrace</title>
+<script>/*__AGTRACE_THEME_JS__*/</script>
+<style>
+  /*__AGTRACE_THEME_CSS__*/
+
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:var(--plane); color:var(--ink);
+    font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px);
+  }
+  .wrap { max-width:1180px; margin:0 auto; padding-block:28px 56px; }
+
+  /* The way back on the left, the page's own controls on the right, both at
+     the top: the listing's header is the same pair in the same place, and the
+     theme toggle has to be where it is on the page you came from. */
+  .topbar { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-bottom:16px; }
+  /* Right-aligned whether or not there is a back link to sit opposite. */
+  .topbar .pills { margin-left:auto; }
+  a.back { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ink-2);
+    text-decoration:none; border:1px solid var(--border); background:var(--surface-1);
+    border-radius:999px; padding:4px 13px; }
+  a.back:hover { color:var(--ink); border-color:var(--ink-2); }
+
+  /* Two rows: what to show on the first, what to do about it on the second.
+     One long row wrapped wherever the window happened to be narrow, which put
+     Apply under a date input as often as not. */
+  .range { display:flex; flex-direction:column; gap:8px; align-items:stretch; margin-top:16px;
+    padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-1); }
+  .range .r { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; }
+  .range .lbl { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .range select, .range input, .range .btn {
+    font:inherit; font-size:12.5px; color:var(--ink); background:var(--plane);
+    border:1px solid var(--border); border-radius:7px; padding:4px 8px; }
+  .range .btn { cursor:pointer; text-decoration:none; }
+  .range .btn:hover { border-color:var(--ink-2); }
+  .range .sep { color:var(--muted); font-size:12px; }
+  .range a.quick { font-size:12px; color:var(--ink-2); text-decoration:none; padding:3px 9px;
+    border:1px solid var(--border); border-radius:999px; background:var(--surface-1); }
+  .range a.quick:hover { color:var(--ink); border-color:var(--ink-2); }
+  .range a.quick.on { color:var(--ink); border-color:var(--ink-2); font-weight:550; }
+  .range .win { font-size:12px; color:var(--ink-2); }
+
+  .tools-used { margin-top:18px; padding:12px 14px 13px; border:1px solid var(--border);
+    border-radius:10px; background:var(--surface-1); }
+  .tools-used .hd { display:flex; gap:10px; align-items:baseline; justify-content:space-between;
+    flex-wrap:wrap; margin-bottom:9px; }
+  .tools-used h2 { font-size:13px; font-weight:600; margin:0; }
+  .tools-used .sum { font-size:12px; color:var(--ink-2); }
+  .toplist { display:grid; grid-template-columns:minmax(80px,max-content) minmax(60px,1fr) max-content max-content;
+    align-items:center; gap:5px 10px; }
+  .toplist .nm { font-size:12px; color:var(--ink); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; max-width:260px; }
+  .toplist .track { height:10px; border-radius:3px; background:var(--plane); }
+  .toplist .track i { display:block; height:100%; background:var(--s-out); border-radius:0 3px 3px 0; }
+  .toplist .ct { font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums; text-align:right; }
+  .toplist .pc { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;
+    text-align:right; min-width:2.6em; }
+
+  .models { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:18px; }
+  .models .lbl { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-right:2px; }
+  .model { border:1px solid var(--border); background:var(--surface-1); border-radius:8px; padding:7px 11px 8px; min-width:158px; }
+  .model .n { font-size:12.5px; font-weight:600; }
+  .model .s { font-size:11.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; margin:1px 0 5px; }
+  .model .bar { height:3px; border-radius:2px; background:var(--grid); overflow:hidden; }
+  .model .bar i { display:block; height:100%; background:var(--s-out); }
+  .models .also { font-size:12px; color:var(--ink-2); cursor:help; }
+
+  /* The identity block takes the room it needs and wraps inside itself; a
+     working directory can be 90 characters long and must not push the controls
+     onto their own line or out of the page. */
+  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-start; justify-content:space-between; }
+  header > .id-block { flex:1 1 420px; min-width:0; }
+  h1 { font-size:20px; font-weight:650; margin:0; letter-spacing:-.01em;
+    display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; }
+  h1 .k { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--muted); margin-right:-8px; }
+  h1 .v { overflow-wrap:anywhere; }
+  h1 .id { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:550; }
+  .sub { color:var(--ink-2); font-size:13px; margin-top:5px; overflow-wrap:anywhere; }
+  .sub + .sub { margin-top:2px; }
+  .sub code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pills { display:flex; gap:6px; flex-wrap:wrap; align-items:center; flex:0 0 auto; }
+  .pill { font-size:12px; color:var(--ink-2); border:1px solid var(--border); border-radius:999px; padding:3px 9px; background:var(--surface-1); }
+  a.pill { text-decoration:none; }
+  a.pill:hover { color:var(--ink); border-color:var(--ink-2); }
+  .pill.live { color:var(--st-critical); border-color:var(--st-critical); }
+
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:10px; margin:22px 0 8px; }
+  .stat { background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:12px 14px; box-shadow:var(--shadow); }
+  .stat .label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .stat .value { font-size:24px; font-weight:600; letter-spacing:-.02em; margin-top:3px; }
+  .stat .note { font-size:12px; color:var(--ink-2); margin-top:2px; }
+
+  section.card { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+    padding:16px 16px 10px; margin-top:16px; box-shadow:var(--shadow); }
+  .head { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline; justify-content:space-between; margin-bottom:2px; }
+  h2 { font-size:14px; font-weight:600; margin:0; }
+  .why { font-size:12px; color:var(--ink-2); max-width:62ch; margin:2px 0 10px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--ink-2); }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+  /* A legend entry that filters is a button, and looks like the label it
+     replaced until you point at it. */
+  .legend button.sel { font:inherit; color:inherit; background:none; border:0; padding:0;
+    cursor:pointer; display:inline-flex; align-items:center; }
+  .legend button.sel:hover { color:var(--ink); }
+  .legend button.sel[aria-pressed="true"] { color:var(--ink); font-weight:600; }
+  .legend button.sel.off { opacity:.45; }
+  .legend button.sel:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:3px; }
+  .legend button.sel i { vertical-align:0; }
+  .chart { position:relative; width:100%; }
+  .chart svg { display:block; width:100%; overflow:visible; }
+  text { fill:var(--muted); font-size:11px; }
+  text.tick { font-variant-numeric:tabular-nums; }
+  .axis { stroke:var(--axis); stroke-width:1; }
+  .grid { stroke:var(--grid); stroke-width:1; }
+  .hover-line { stroke:var(--ink-2); stroke-width:1; stroke-dasharray:3 3; pointer-events:none; }
+  .compact-line { stroke:var(--ink-2); stroke-width:1.5; }
+  .compact-cap { fill:var(--ink-2); }
+  .tool { cursor:default; }
+
+  .tip { position:absolute; z-index:5; pointer-events:none; min-width:150px; max-width:330px;
+    background:var(--surface-1); color:var(--ink); border:1px solid var(--border); border-radius:8px;
+    padding:8px 10px; font-size:12px; box-shadow:0 2px 6px rgba(0,0,0,.14), 0 12px 32px rgba(0,0,0,.12);
+    opacity:0; transition:opacity .08s; }
+  .tip.on { opacity:1; }
+  .tip .t { font-weight:600; margin-bottom:4px; word-break:break-word; }
+  .tip .r { display:flex; justify-content:space-between; gap:14px; font-variant-numeric:tabular-nums; }
+  .tip .r span:first-child { color:var(--ink-2); }
+  .tip .m { color:var(--ink-2); margin-top:5px; word-break:break-word; }
+  .tip i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
+
+  footer { margin-top:20px; font-size:12px; color:var(--ink-2); }
+  footer ul { margin:6px 0 0; padding-left:18px; }
+  footer li { margin:3px 0; }
+  .colophon { margin-top:16px; text-align:center; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .colophon a { color:var(--ink-2); }
+  .colophon a:hover { color:var(--ink); }
+  .empty { color:var(--ink-2); font-size:13px; padding:10px 0 16px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+
+<script type="application/json" id="agtrace-data">/*__AGTRACE_DATA__*/null</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("agtrace-data").textContent);
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var STATUS = { ok:"--st-ok", error:"--st-critical", denied:"--st-serious",
+                 interrupted:"--st-warning", unpaired:"--muted" };
+
+  function el(tag, attrs, text) {
+    var n = document.createElement(tag);
+    for (var k in attrs || {}) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function s(tag, attrs) {
+    var n = document.createElementNS(SVGNS, tag);
+    for (var k in attrs || {}) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function num(n) { return (n == null ? "" : n.toLocaleString("en-US")); }
+  function compact(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+    if (n >= 1e4) return Math.round(n / 1e3) + "k";
+    return num(n);
+  }
+  function bytes(n) {
+    if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + "M";
+    if (n >= 1 << 10) return Math.round(n / (1 << 10)) + "K";
+    return n + "B";
+  }
+
+  /* ---------- header, stats ---------- */
+  var root = document.getElementById("root");
+  var m = D.meta;
+  document.title = m.title
+    ? m.title + " — agtrace"
+    : "agtrace " + m.short + (m.cwd ? " — " + m.cwd.split("/").pop() : "");
+
+  var topbar = el("div", { class: "topbar" });
+  // A back link only where there is somewhere to go back to: a page saved to a
+  // file is opened on its own, and a link to a session index that does not
+  // exist is worse than no link.
+  if (m.back) {
+    var back = el("a", { class: "back", href: m.back });
+    back.appendChild(el("span", { "aria-hidden": "true" }, "\u2190"));
+    back.appendChild(el("span", null, m.backLabel || "Sessions"));
+    topbar.appendChild(back);
+  }
+  var pills = el("div", { class: "pills" });
+  if (m.live) pills.appendChild(el("span", { class: "pill live", title: "The last line of the transcript was incomplete" }, "still running"));
+  var tg = el("button", { class: "toggle", type: "button" });
+  window.agtraceTheme.wire(tg);
+  pills.appendChild(tg);
+  topbar.appendChild(pills);
+  root.appendChild(topbar);
+
+  var head = el("header");
+  var left = el("div", { class: "id-block" });
+  var h1 = el("h1");
+  // Both fields, each labelled. They are different things — what the CLI calls
+  // the session and what the model called it — and a heading that showed one
+  // and hid the other made readers ask which they were looking at.
+  function headingPart(label, value) {
+    h1.appendChild(el("span", { class: "k" }, label));
+    h1.appendChild(el("span", { class: "v" }, value));
+  }
+  if (m.agentName) headingPart("name", m.agentName);
+  if (m.title) headingPart("title", m.title);
+  if (!m.agentName && !m.title) {
+    h1.appendChild(el("span", null, "Agent run "));
+    h1.appendChild(el("span", { class: "id" }, m.short));
+  }
+  left.appendChild(h1);
+  // Two lines, because one was long enough to wrap on its own and wrap badly:
+  // where the session is, then when it ran and what ran it. A 90-character
+  // working directory now pushes nothing but itself around.
+  var sub = el("div", { class: "sub" });
+  if (m.agentName || m.title) {
+    sub.appendChild(el("code", null, m.short));
+    sub.appendChild(el("span", null, "  ·  "));
+  }
+  sub.appendChild(el("code", null, m.cwd || "(cwd not recorded)"));
+  if (m.branch) sub.appendChild(el("span", null, "  ·  branch " + m.branch));
+  left.appendChild(sub);
+
+  var sub2 = el("div", { class: "sub" });
+  if (m.start) sub2.appendChild(el("span", null, m.start + " → " + m.end));
+  if (m.source) {
+    // The CLI and its releases: a property of the run, so it reads with the
+    // run's dates rather than sitting among the page's own controls.
+    if (sub2.childNodes.length) sub2.appendChild(el("span", null, "  ·  "));
+    var src = el("span", null, m.source + (m.versions ? " " + m.versions : ""));
+    if (m.versionCount > 2) {
+      src.setAttribute("title", m.versionCount + " releases across this run: " + m.versionsAll);
+    }
+    sub2.appendChild(src);
+  }
+  if (sub2.childNodes.length) left.appendChild(sub2);
+  head.appendChild(left);
+  root.appendChild(head);
+
+  // Time range. Only where a server can answer for another window: a page
+  // saved to a file has one window baked into it, and controls that cannot
+  // change anything are worse than none.
+  if (m.interact) {
+    var rr = el("div", { class: "range" });
+    var top = el("div", { class: "r" });
+    rr.appendChild(top);
+    top.appendChild(el("span", { class: "lbl" }, "range"));
+
+    if (D.ranges && D.ranges.length) {
+      var sel = el("select", { "aria-label": "Time range" });
+      // A window set by a preset or by hand matches none of the run's own
+      // days, and a list that then reads "Full run" says the opposite of what
+      // the page is showing.
+      var listed = D.ranges.some(function (r) { return r.Active; });
+      if (!listed) {
+        var custom = el("option", { value: "", disabled: "" }, "Custom window");
+        custom.selected = true;
+        sel.appendChild(custom);
+      }
+      D.ranges.forEach(function (r) {
+        var o = el("option", { value: r.Href }, r.Label + (r.Note ? "  —  " + r.Note : ""));
+        if (r.Active) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", function () {
+        if (sel.value) location.href = sel.value;
+      });
+      top.appendChild(sel);
+    }
+
+    // Presets, next to the run's own days rather than inside that list: they
+    // are relative to today, not to the run, and a dropdown that mixes the two
+    // makes "Tue 8 Sep" and "Yesterday" look like the same kind of thing. The
+    // server leaves out any that would select nothing.
+    (D.quick || []).forEach(function (q) {
+      top.appendChild(el("a", {
+        class: "quick" + (q.Active ? " on" : ""), href: q.Href,
+        "aria-current": q.Active ? "true" : "false"
+      }, q.Label));
+    });
+
+    var from = el("input", { type: "datetime-local", value: m.fromValue || "", "aria-label": "From" });
+    var to = el("input", { type: "datetime-local", value: m.toValue || "", "aria-label": "To" });
+    top.appendChild(el("span", { class: "sep" }, "from"));
+    top.appendChild(from);
+    top.appendChild(el("span", { class: "sep" }, "to"));
+    top.appendChild(to);
+
+    var act = el("div", { class: "r" });
+    rr.appendChild(act);
+
+    var apply = el("button", { class: "btn", type: "button" }, "Apply");
+    apply.addEventListener("click", function () {
+      var u = new URL(location.href);
+      // An empty bound is an open one, which is what dropping the parameter
+      // means on the way back in.
+      if (from.value) u.searchParams.set("from", from.value); else u.searchParams.delete("from");
+      if (to.value) u.searchParams.set("to", to.value); else u.searchParams.delete("to");
+      location.href = u.toString();
+    });
+    act.appendChild(apply);
+
+    if (m.windowed) {
+      // A link, not a button that calls location.href: it goes somewhere, so
+      // it should open in a new tab like anything else that does.
+      var u2 = new URL(location.href);
+      u2.searchParams.delete("from");
+      u2.searchParams.delete("to");
+      act.appendChild(el("a", { class: "btn", href: u2.toString() }, "Reset"));
+    }
+    root.appendChild(rr);
+  }
+
+  // Which models the run actually used, busiest first. Share is of output
+  // tokens: the total is dominated by cache reads and would report every model
+  // in a long session as about the same size.
+  function pct(f) {
+    var v = f * 100;
+    if (v > 0 && v < 0.1) return "<0.1%";
+    return (v >= 10 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, "")) + "%";
+  }
+  if (D.modelsUsed && D.modelsUsed.length) {
+    var mw = el("div", { class: "models" });
+    mw.appendChild(el("span", { class: "lbl" }, D.modelsUsed.length === 1 ? "model" : "models"));
+    D.modelsUsed.forEach(function (mu) {
+      var card = el("div", {
+        class: "model",
+        title: mu.name + "\n" + num(mu.out) + " output tokens" +
+          (mu.think ? " (" + num(mu.think) + " thinking)" : "") +
+          "\n" + num(mu.ctx) + " tokens of context served" +
+          "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses")
+      });
+      card.appendChild(el("div", { class: "n" }, mu.name));
+      card.appendChild(el("div", { class: "s" },
+        mu.out ? compact(mu.out) + " out · " + pct(mu.share) : "no output recorded"));
+      var bar = el("div", { class: "bar" });
+      var fill = el("i");
+      fill.style.width = (mu.share * 100).toFixed(2) + "%";
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      mw.appendChild(card);
+    });
+    if (D.statedOnly && D.statedOnly.length) {
+      mw.appendChild(el("span", {
+        class: "also",
+        title: "Named by the transcript's own cost snapshot, but by no response in it — " +
+          "background work, typically. Nothing here can say what they did."
+      }, "also billed: " + D.statedOnly.join(", ")));
+    }
+    root.appendChild(mw);
+  }
+
+  var stats = el("div", { class: "stats" });
+  D.stats.forEach(function (st) {
+    var c = el("div", { class: "stat" });
+    c.appendChild(el("div", { class: "label" }, st.label));
+    c.appendChild(el("div", { class: "value" }, st.value));
+    if (st.note) c.appendChild(el("div", { class: "note" }, st.note));
+    stats.appendChild(c);
+  });
+  root.appendChild(stats);
+
+  /* ---------- chart scaffolding ---------- */
+  // A legend entry with a key is also a filter: click it to see that series
+  // alone, click it again for all of them back. The chart redraws against the
+  // series still showing, scale included — isolating a band that is 1% of a
+  // stack and leaving it pinned to the bottom of the old axis would answer
+  // nothing. A series keeps its own colour whatever else is hidden: the colour
+  // names the thing, not its rank in what happens to be on screen.
+  function card(title, why, legendItems) {
+    var c = { only: null, redraw: function () {} };
+    var sec = el("section", { class: "card" });
+    var hd = el("div", { class: "head" });
+    hd.appendChild(el("h2", null, title));
+    if (legendItems && legendItems.length) {
+      var lg = el("div", { class: "legend" });
+      var buttons = [];
+      legendItems.forEach(function (it) {
+        var sw = el("i");
+        sw.style.background = "var(" + it.token + ")";
+        if (!it.key) {
+          var sp = el("span");
+          sp.appendChild(sw);
+          sp.appendChild(document.createTextNode(it.label));
+          lg.appendChild(sp);
+          return;
+        }
+        var b = el("button", {
+          type: "button", class: "sel", "aria-pressed": "false",
+          title: "Show only " + it.label
+        });
+        b.appendChild(sw);
+        b.appendChild(document.createTextNode(it.label));
+        b.addEventListener("click", function () {
+          c.only = c.only === it.key ? null : it.key;
+          buttons.forEach(function (o) {
+            var on = c.only === o.key;
+            o.node.setAttribute("aria-pressed", on ? "true" : "false");
+            o.node.classList.toggle("off", c.only !== null && !on);
+            o.node.title = on ? "Show all series again" : "Show only " + o.label;
+          });
+          c.redraw();
+        });
+        buttons.push({ key: it.key, label: it.label, node: b });
+        lg.appendChild(b);
+      });
+      hd.appendChild(lg);
+    }
+    sec.appendChild(hd);
+    if (why) sec.appendChild(el("p", { class: "why" }, why));
+    var box = el("div", { class: "chart" });
+    var tip = el("div", { class: "tip" });
+    box.appendChild(tip);
+    sec.appendChild(box);
+    root.appendChild(sec);
+    c.sec = sec; c.box = box; c.tip = tip;
+    return c;
+  }
+
+  function showTip(tip, box, x, y, nodes) {
+    tip.textContent = "";
+    nodes.forEach(function (n) { tip.appendChild(n); });
+    tip.classList.add("on");
+    var w = box.clientWidth;
+    var tw = tip.offsetWidth || 220;
+    var left = Math.min(Math.max(4, x - tw / 2), Math.max(4, w - tw - 4));
+    tip.style.left = left + "px";
+    tip.style.top = Math.max(0, y) + "px";
+  }
+  function hideTip(tip) { tip.classList.remove("on"); }
+  function tipRow(label, value, token) {
+    var r = el("div", { class: "r" });
+    var l = el("span");
+    if (token) { var i = el("i"); i.style.background = "var(" + token + ")"; l.appendChild(i); }
+    l.appendChild(document.createTextNode(label));
+    r.appendChild(l);
+    r.appendChild(el("span", null, value));
+    return r;
+  }
+
+  /* Axis annotations shared by the two token charts: compaction rules, idle
+     bands, date ticks. Drawn from the same clock, so a vertical line means the
+     same instant in both. */
+  function annotate(g, W, H, opts) {
+    (D.gaps || []).forEach(function (gp) {
+      var x = gp.x * W;
+      g.appendChild(s("rect", { x: x - 3, y: 0, width: 6, height: H, fill: "url(#idle)" }));
+      if (opts.labelGaps) {
+        var t = s("text", { x: x, y: -4, "text-anchor": "middle" });
+        t.textContent = gp.label;
+        g.appendChild(t);
+      }
+    });
+    (D.compacts || []).forEach(function (c) {
+      var x = c.x * W;
+      g.appendChild(s("line", { x1: x, y1: 0, x2: x, y2: H, class: "compact-line" }));
+      g.appendChild(s("circle", { cx: x, cy: 0, r: 3, class: "compact-cap" }));
+      if (opts.labelCompacts) {
+        var t = s("text", { x: x, y: -6, "text-anchor": x > W * 0.85 ? "end" : "middle" });
+        t.textContent = c.label;
+        g.appendChild(t);
+      }
+    });
+  }
+  // Ticks mark the start of each working stretch. Whether two labels collide
+  // depends on how wide they render, which depends on the viewer's font — and
+  // on the anchor, since the first and last are start- and end-aligned rather
+  // than centred. A fixed minimum gap got this wrong in both directions (the
+  // gaps here are 93px and up, and the labels are wider than that), so the
+  // labels are drawn first and the overlaps removed by measurement, in
+  // thinTicks, once the SVG is in the document and has a box to measure.
+  function ticks(g, W, y) {
+    (D.ticks || []).forEach(function (tk) {
+      var t = s("text", {
+        x: tk.x * W, y: y, class: "tick xtick",
+        "text-anchor": tk.x > 0.92 ? "end" : (tk.x < 0.04 ? "start" : "middle")
+      });
+      t.textContent = tk.label;
+      g.appendChild(t);
+    });
+  }
+
+  // Both ends survive: when a run started and when it stopped are worth more
+  // than the labels they displace.
+  function thinTicks(svg) {
+    var nodes = Array.prototype.slice.call(svg.querySelectorAll("text.xtick"));
+    if (nodes.length < 2) return;
+    var pad = 8;
+    var boxes = nodes.map(function (n) {
+      try {
+        return n.getBBox();
+      } catch (e) {
+        return null;
+      }
+    });
+    if (boxes.some(function (b) { return !b || !b.width; })) return; // nothing measurable, leave them alone
+
+    var keep = [0];
+    for (var i = 1; i < nodes.length; i++) {
+      var prev = boxes[keep[keep.length - 1]];
+      if (boxes[i].x >= prev.x + prev.width + pad) keep.push(i);
+    }
+    var last = nodes.length - 1;
+    if (keep[keep.length - 1] !== last) {
+      while (keep.length > 1 && boxes[keep[keep.length - 1]].x + boxes[keep[keep.length - 1]].width + pad > boxes[last].x) {
+        keep.pop();
+      }
+      keep.push(last);
+    }
+    var kept = {};
+    keep.forEach(function (i) { kept[i] = true; });
+    nodes.forEach(function (n, i) { if (!kept[i]) n.remove(); });
+  }
+
+  function defs(svg) {
+    var d = s("defs");
+    var p = s("pattern", { id: "idle", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" });
+    p.appendChild(s("rect", { width: 6, height: 6, fill: "transparent" }));
+    // A recessive hatch: idle time is context for the data, not a subject of
+    // its own, and at 50% coverage it was outshouting the series.
+    var ln = s("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--grid)", "stroke-width": 1 });
+    p.appendChild(ln);
+    d.appendChild(p);
+    svg.appendChild(d);
+  }
+  function yGrid(g, W, H, max, fmt) {
+    var seen = {};
+    for (var i = 0; i <= 4; i++) {
+      var y = H - (i / 4) * H;
+      g.appendChild(s("line", { x1: 0, y1: y, x2: W, y2: y, class: i === 0 ? "axis" : "grid" }));
+      // A small maximum rounds several steps to the same number, and an axis
+      // labelled 1, 1, 1, 0, 0 reads as broken. Label each value once.
+      var label = fmt(max * i / 4);
+      if (seen[label]) continue;
+      seen[label] = true;
+      var t = s("text", { x: -6, y: y + 3.5, "text-anchor": "end", class: "tick" });
+      t.textContent = label;
+      g.appendChild(t);
+    }
+  }
+
+  /* ---------- 0. tokens spent, cumulative ---------- */
+  // Where the session's total came from, and when. The stat tile says how big
+  // the number is; this says which part of the run bought it and what it
+  // bought. All four series are flows — each one is tokens that were spent and
+  // are gone — so a running sum of them is a single quantity and they can
+  // share a stack. The context chart further down is a level and deliberately
+  // cannot.
+  // One definition of the series, used by the legend, the stack and the
+  // tooltip. Three copies of the same four labels is how a filtered chart ends
+  // up naming a band one thing in the key and another on hover.
+  var SPEND = [
+    { key: "read", token: "--s-read", label: "cache read" },
+    { key: "write", token: "--s-write", label: "cache write" },
+    { key: "in", token: "--s-in", label: "input" },
+    { key: "out", token: "--s-out", label: "output" }
+  ];
+  var spend = card("Tokens spent", null, SPEND);
+  spend.redraw = function () { drawSpend(); };
+
+  // What the run reached for, and how often. Everything it called, not a top
+  // few: the single call to something unexpected is usually the one worth
+  // seeing. Ranked busiest first, with each bar measured against the busiest
+  // rather than against the total — shares of a long tail are all the same
+  // invisible sliver. One series, so it wears the ink token and spends no
+  // categorical slot. A list with nothing in it is left out entirely.
+  function usedList(title, items, countWord, itemWord) {
+    if (!items || !items.length) return;
+    var box = el("div", { class: "tools-used" });
+    var hd = el("div", { class: "hd" });
+    hd.appendChild(el("h2", null, title));
+    var calls = items.reduce(function (a, t) { return a + t.n; }, 0);
+    hd.appendChild(el("span", { class: "sum" },
+      num(calls) + " " + (calls === 1 ? countWord : countWord + "s") + " across " +
+      items.length + " " + (items.length === 1 ? itemWord : itemWord + "s")));
+    box.appendChild(hd);
+
+    var list = el("div", { class: "toplist" });
+    var top = items[0].n || 1;
+    items.forEach(function (t) {
+      // The raw name on hover: display can be a shortened one, and the whole
+      // row carries it so there is no thin strip that alone answers "which".
+      var tip = t.name + " — " + num(t.n) + " of " + num(calls) + " " + countWord + "s";
+      list.appendChild(el("div", { class: "nm", title: tip }, t.display));
+      var track = el("div", { class: "track", title: tip });
+      var fill = el("i");
+      // Something called once still gets a mark: a hairline is the point of a
+      // ranked list's tail. The floor is small enough that it does not make
+      // one call look like three.
+      fill.style.width = Math.max(0.8, (t.n / top) * 100) + "%";
+      track.appendChild(fill);
+      list.appendChild(track);
+      list.appendChild(el("div", { class: "ct", title: tip }, num(t.n)));
+      list.appendChild(el("div", { class: "pc", title: tip },
+        t.share >= 0.01 ? Math.round(t.share * 100) + "%" : "<1%"));
+    });
+    box.appendChild(list);
+    root.appendChild(box);
+  }
+  /* ---------- 2. tokens per slice ---------- */
+  // The same four numbers one slice at a time, so a stretch that burned
+  // through tokens stands out as a tall bar rather than as a steeper piece of
+  // a curve that only ever rises.
+  var flow = card("Tokens over time", null, SPEND);
+  flow.redraw = function () { drawFlow(); };
+
+  /* ---------- 3. tools: what, then when ---------- */
+  // MCP tool names are shortened to server/tool; a skill's name is whatever it
+  // was invoked by, plugin prefix included. Each subject gets the pair: the
+  // ranked list says what it reached for, the lane under it says when.
+  usedList("Tools used", D.toolUse, "call", "tool");
+
+  var toolLegend = [{ token: "--st-ok", label: "ok", key: "ok" }];
+  (D.outcomes || []).forEach(function (o) {
+    if (o.label !== "ok") toolLegend.push({ token: STATUS[o.label] || "--muted", label: o.label, key: o.label });
+  });
+  // Form follows density. Up to a couple of hundred calls, one mark each reads
+  // cleanly and its width carries the duration. Past that the marks overlap
+  // into a solid block that says only "there were many", so the lane switches
+  // to counts per slice — which is what a crowd of calls actually supports.
+  var DENSE = (D.tools || []).length > 250;
+  var tools = card(DENSE ? "Tool calls over time" : "Tool calls", null, toolLegend);
+  tools.redraw = function () { drawTools(); };
+
+  /* ---------- 4. skills: what, then when ---------- */
+  usedList("Skills used", D.skillUse, "invocation", "skill");
+
+  // A skill invocation is a Skill tool call, so its marks are already in
+  // D.tools; the skill's own name is the call's brief. One lane per skill
+  // rather than one lane for all of them: there are a handful at most, and a
+  // row labelled with its name identifies itself without a colour or a hover.
+  function skillOf(t) { return t.brief || "(unrecorded)"; }
+  var SKILLMARKS = (D.tools || []).filter(function (t) { return t.name === "Skill"; });
+  var skills = SKILLMARKS.length ? card("Skill invocations over time", null, null) : null;
+
+  // An empty grid with an invented scale says less than a sentence does.
+  function emptyState(c, msg) {
+    c.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
+    if (!c.box.querySelector(".empty")) c.box.appendChild(el("div", { class: "empty" }, msg));
+    return true;
+  }
+  function clearEmptyState(c) {
+    var e = c.box.querySelector(".empty");
+    if (e) e.remove();
+  }
+
+  function drawSpend() {
+    var W = spend.box.clientWidth, H = 150, PAD = 46;
+    if (!D.scales.maxTotal) {
+      return emptyState(spend, "No token usage recorded in this transcript, so there is nothing to total.");
+    }
+    clearEmptyState(spend);
+    spend.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
+    var svg = s("svg", { height: H + 56, viewBox: "0 0 " + W + " " + (H + 56), role: "img",
+      "aria-label": "Tokens spent over the run as a running total, stacked by cache read, cache write, input and output." +
+        (spend.only ? " Showing " + spend.only + " only." : "") });
+    defs(svg);
+    var g = s("g", { transform: "translate(" + PAD + ",22)" });
+    var IW = Math.max(10, W - PAD - 10);
+    var N = D.scales.bins;
+    var x = function (i) { return (i / (N - 1)) * IW; };
+
+    // A running total is defined in every column, including the ones no
+    // response landed in: nothing was spent there, so the curve is flat rather
+    // than absent. That is why this chart has none of the contiguous-run
+    // trouble the level chart below has — there are no holes to bridge.
+    var byX = {};
+    (D.bins || []).forEach(function (b) { byX[b.x] = b; });
+    var only = spend.only;
+    var acc = { read: 0, write: 0, "in": 0, out: 0 }, pts = [];
+    for (var i = 0; i < N; i++) {
+      var b = byX[i];
+      if (b) {
+        acc.read += b.read || 0;
+        acc.write += b.write || 0;
+        acc["in"] += b["in"] || 0;
+        acc.out += b.out || 0;
+      }
+      pts.push({ x: i, read: acc.read, write: acc.write, "in": acc["in"], out: acc.out });
+    }
+
+    // A running total's maximum is its last point, over the series showing.
+    var end = pts[pts.length - 1];
+    var max = (only ? end[only] : D.scales.maxTotal) || 1;
+    var y = function (v) { return H - (v / max) * H; };
+    yGrid(g, IW, H, max, function (v) { return compact(Math.round(v)); });
+    annotate(g, IW, H, { labelCompacts: false, labelGaps: false });
+
+    // Stacked from the largest layer up, as in the level chart, so the
+    // dominant series is the base and the thin ones ride on a flat edge.
+    // Output is the ink token rather than a fourth categorical colour: three
+    // is what the palette separates cleanly, and grey is the furthest thing
+    // from all three under every vision model.
+    var layers = SPEND.filter(function (L) { return !only || L.key === only; });
+    var base = pts.map(function () { return 0; });
+    layers.forEach(function (L) {
+      var top = [], bot = [];
+      pts.forEach(function (p, i) {
+        var b0 = base[i], b1 = b0 + p[L.key];
+        top.push([x(p.x), y(b1)]);
+        bot.push([x(p.x), y(b0)]);
+        base[i] = b1;
+      });
+      var line = top.map(function (p) { return p[0] + "," + p[1]; }).join("L");
+      g.appendChild(s("path", {
+        d: "M" + line + "L" + bot.reverse().map(function (p) { return p[0] + "," + p[1]; }).join("L") + "Z",
+        fill: "var(" + L.token + ")"
+      }));
+      // 2px surface separation along the layer's top edge, so a thin band is
+      // still its own band where it meets the one below.
+      g.appendChild(s("path", {
+        d: "M" + line, fill: "none", stroke: "var(--surface-1)",
+        "stroke-width": 2, "stroke-linejoin": "round"
+      }));
+    });
+
+    ticks(g, IW, H + 18);
+    var hl = s("line", { class: "hover-line", x1: 0, y1: 0, x2: 0, y2: H, opacity: 0 });
+    g.appendChild(hl);
+    var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
+    g.appendChild(hit);
+    svg.appendChild(g);
+    spend.box.appendChild(svg);
+    thinTicks(svg);
+
+    // The crosshair snaps to a column that holds a response, so every reading
+    // is labelled with a time something actually happened at.
+    hit.addEventListener("mousemove", function (ev) {
+      var r = svg.getBoundingClientRect();
+      var i = Math.round(((ev.clientX - r.left - PAD) / IW) * (N - 1));
+      var b = nearestBin(i);
+      if (!b) return;
+      var p = pts[b.x];
+      var sofar = 0;
+      layers.forEach(function (L) { sofar += p[L.key]; });
+      hl.setAttribute("opacity", 1);
+      hl.setAttribute("x1", x(b.x)); hl.setAttribute("x2", x(b.x));
+      var rows = [el("div", { class: "t" }, b.at)];
+      if (!only) rows.push(tipRow("spent by here", num(sofar)));
+      layers.forEach(function (L) { rows.push(tipRow(L.label, num(p[L.key]), L.token)); });
+      rows.push(el("div", { class: "m" }, pct(sofar / max) +
+        (only ? " of what this series spent in all" : " of the window's total")));
+      showTip(spend.tip, spend.box, x(b.x) + PAD, 8, rows);
+    });
+    hit.addEventListener("mouseleave", function () { hideTip(spend.tip); hl.setAttribute("opacity", 0); });
+  }
+
+  function drawFlow() {
+    var W = flow.box.clientWidth, H = 150, PAD = 46;
+    if (!D.scales.maxTotal) {
+      return emptyState(flow, "No token usage recorded in this transcript.");
+    }
+    clearEmptyState(flow);
+    flow.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
+
+    var only = flow.only;
+    var layers = SPEND.filter(function (L) { return !only || L.key === only; });
+    var bs = D.bins || [];
+    // The tallest column of what is showing, which is the whole stack only
+    // when the whole stack is showing.
+    var max = 0;
+    bs.forEach(function (b) {
+      var h = 0;
+      layers.forEach(function (L) { h += b[L.key] || 0; });
+      if (h > max) max = h;
+    });
+    if (!max) {
+      return emptyState(flow, "No " + (only || "token") + " usage recorded in this transcript.");
+    }
+
+    var svg = s("svg", { height: H + 50, viewBox: "0 0 " + W + " " + (H + 50), role: "img",
+      "aria-label": "Tokens spent in each slice of the run, stacked by cache read, cache write, input and output." +
+        (only ? " Showing " + only + " only." : "") });
+    defs(svg);
+    var g = s("g", { transform: "translate(" + PAD + ",16)" });
+    var IW = Math.max(10, W - PAD - 10);
+    var N = D.scales.bins;
+    yGrid(g, IW, H, max, function (v) { return compact(Math.round(v)); });
+    annotate(g, IW, H, {});
+
+    var colW = IW / N;
+    var bw = Math.max(1, colW - 2); // 2px surface gap between adjacent columns
+    bs.forEach(function (b) {
+      var x0 = (b.x / (N - 1)) * IW - bw / 2;
+      var y0 = H;
+      // Bottom up, in the same order as the stack above, and only the top of
+      // the column is rounded — the segments inside it meet square, because a
+      // radius on a one-pixel band erases the band.
+      var total = 0;
+      layers.forEach(function (L) { total += b[L.key] || 0; });
+      if (!total) return;
+      var topY = H - (total / max) * H;
+      layers.forEach(function (L, i) {
+        var v = b[L.key] || 0;
+        if (!v) return;
+        var h = Math.max(1, (v / max) * H);
+        var isTop = true;
+        for (var k = i + 1; k < layers.length; k++) {
+          if (b[layers[k].key]) isTop = false;
+        }
+        var y = Math.max(topY, y0 - h);
+        if (isTop) {
+          var r = Math.min(4, bw / 2, y0 - y);
+          g.appendChild(s("path", {
+            d: "M" + x0 + "," + y0 + "V" + (y + r) +
+               "q0," + (-r) + " " + r + "," + (-r) +
+               "h" + (bw - 2 * r) + "q" + r + ",0 " + r + "," + r +
+               "V" + y0 + "Z",
+            fill: "var(" + L.token + ")"
+          }));
+        } else {
+          g.appendChild(s("rect", { x: x0, y: y, width: bw, height: y0 - y, fill: "var(" + L.token + ")" }));
+        }
+        y0 = y;
+      });
+    });
+
+    ticks(g, IW, H + 18);
+    var hl = s("line", { class: "hover-line", x1: 0, y1: 0, x2: 0, y2: H, opacity: 0 });
+    g.appendChild(hl);
+    var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
+    g.appendChild(hit);
+    svg.appendChild(g);
+    flow.box.appendChild(svg);
+    thinTicks(svg);
+
+    hit.addEventListener("mousemove", function (ev) {
+      var r = svg.getBoundingClientRect();
+      var i = Math.round(((ev.clientX - r.left - PAD) / IW) * (N - 1));
+      var b = nearestBin(i);
+      if (!b) return;
+      var bx = (b.x / (N - 1)) * IW;
+      hl.setAttribute("opacity", 1);
+      hl.setAttribute("x1", bx); hl.setAttribute("x2", bx);
+      var sum = 0;
+      layers.forEach(function (L) { sum += b[L.key] || 0; });
+      var rows = [el("div", { class: "t" }, b.at)];
+      if (!only) rows.push(tipRow("spent here", num(sum)));
+      layers.forEach(function (L) { rows.push(tipRow(L.label, num(b[L.key] || 0), L.token)); });
+      if ((!only || only === "out") && b.think) rows.push(tipRow("of it thinking", num(b.think)));
+      rows.push(el("div", { class: "m" },
+        "summed over " + b.n + (b.n === 1 ? " response" : " responses") + " in this slice"));
+      showTip(flow.tip, flow.box, bx + PAD, 4, rows);
+    });
+    hit.addEventListener("mouseleave", function () { hideTip(flow.tip); hl.setAttribute("opacity", 0); });
+  }
+
+  function nearestBin(i) {
+    var bs = D.bins || [], best = null, bd = 1e9;
+    for (var k = 0; k < bs.length; k++) {
+      var d = Math.abs(bs[k].x - i);
+      if (d < bd) { bd = d; best = bs[k]; }
+    }
+    return bd <= 4 ? best : null;
+  }
+
+  var OUTCOME_ORDER = ["ok", "unpaired", "interrupted", "denied", "error"];
+
+  function drawTools() {
+    var W = tools.box.clientWidth, PAD = 46;
+    var H = DENSE ? 74 : 34;
+    tools.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
+    if (!D.tools || !D.tools.length) {
+      return emptyState(tools, "No tool calls in this run.");
+    }
+    // The legend filters by outcome here. Order survives it, and order is
+    // load-bearing: the Go side puts failures last so they draw on top.
+    var only = tools.only;
+    var marks = only
+      ? D.tools.filter(function (t) { return t.outcome === only; })
+      : D.tools;
+    if (!marks.length) {
+      return emptyState(tools, "No " + only + " calls in this run.");
+    }
+    clearEmptyState(tools);
+    var svg = s("svg", { height: H + 40, viewBox: "0 0 " + W + " " + (H + 40), role: "img",
+      "aria-label": (DENSE
+        ? "Tool calls counted per slice of the run, stacked by outcome."
+        : "Every tool call in the run, positioned by time and coloured by outcome.") +
+        (only ? " Showing calls with the outcome " + only + " only." : "") });
+    defs(svg);
+    var g = s("g", { transform: "translate(" + PAD + ",8)" });
+    var IW = Math.max(10, W - PAD - 10);
+    var N = D.scales.bins;
+
+    if (DENSE) {
+      // Counts per slice: a flow, so summing over the slice is the right
+      // aggregate, unlike the level chart above.
+      var cols = {}, maxN = 0;
+      marks.forEach(function (t) {
+        var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
+        var c = cols[b] || (cols[b] = { n: 0, slow: null });
+        c[t.outcome] = (c[t.outcome] || 0) + 1;
+        c.n++;
+        if (t.hasDur && (!c.slow || t.w > c.slow.w)) c.slow = t;
+        if (c.n > maxN) maxN = c.n;
+      });
+      yGrid(g, IW, H, maxN || 1, function (v) { return String(Math.round(v)); });
+      annotate(g, IW, H, {});
+
+      var colW = IW / N, bw = Math.max(1, colW - 2);
+      Object.keys(cols).forEach(function (k) {
+        var c = cols[k], y0 = H;
+        var x0 = (k / (N - 1)) * IW - bw / 2;
+        OUTCOME_ORDER.forEach(function (o) {
+          var n = c[o] || 0;
+          if (!n) return;
+          var h = (n / maxN) * H;
+          g.appendChild(s("rect", {
+            x: x0, y: y0 - h, width: bw, height: Math.max(1, h - 1),
+            fill: "var(" + (STATUS[o] || "--muted") + ")"
+          }));
+          y0 -= h;
+        });
+      });
+
+      var hl = s("line", { class: "hover-line", x1: 0, y1: 0, x2: 0, y2: H, opacity: 0 });
+      g.appendChild(hl);
+      var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
+      g.appendChild(hit);
+      hit.addEventListener("mousemove", function (ev) {
+        var r = svg.getBoundingClientRect();
+        var i = Math.round(((ev.clientX - r.left - PAD) / IW) * (N - 1));
+        var c = null, bi = -1, bd = 1e9;
+        Object.keys(cols).forEach(function (k) {
+          var d = Math.abs(k - i);
+          if (d < bd) { bd = d; bi = +k; c = cols[k]; }
+        });
+        if (!c || bd > 4) return;
+        var bx = (bi / (N - 1)) * IW;
+        hl.setAttribute("opacity", 1);
+        hl.setAttribute("x1", bx); hl.setAttribute("x2", bx);
+        var nodes = [el("div", { class: "t" }, c.n + (c.n === 1 ? " call" : " calls") + " in this slice")];
+        OUTCOME_ORDER.forEach(function (o) {
+          if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
+        });
+        if (c.slow) nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "")));
+        showTip(tools.tip, tools.box, bx + PAD, H + 12, nodes);
+      });
+      hit.addEventListener("mouseleave", function () { hideTip(tools.tip); hl.setAttribute("opacity", 0); });
+    } else {
+      g.appendChild(s("line", { x1: 0, y1: H, x2: IW, y2: H, class: "axis" }));
+      annotate(g, IW, H, {});
+      marks.forEach(function (t) {
+        var x0 = t.x * IW;
+        var w = t.hasDur ? Math.max(2, (t.w || 0) * IW) : 2;
+        var token = STATUS[t.outcome] || "--muted";
+        var r = s("rect", {
+          x: x0, y: 4, width: w, height: H - 10, rx: 2, class: "tool",
+          fill: "var(" + token + ")",
+          stroke: "var(--surface-1)", "stroke-width": w > 4 ? 1 : 0
+        });
+        r.addEventListener("mouseenter", function () {
+          var nodes = [el("div", { class: "t" }, t.name)];
+          if (t.brief) nodes.push(el("div", { class: "m" }, t.brief));
+          nodes.push(tipRow("outcome", t.outcome, token));
+          nodes.push(tipRow("duration", t.hasDur ? t.dur : "unknown"));
+          if (t.bytes) nodes.push(tipRow("result", bytes(t.bytes)));
+          if (t.at) nodes.push(tipRow("at", t.at));
+          if (t.detail) nodes.push(el("div", { class: "m" }, t.detail));
+          if (!t.hasDur) nodes.push(el("div", { class: "m" }, "No result in the transcript, so no duration — not a fast call."));
+          showTip(tools.tip, tools.box, x0 + PAD, H + 12, nodes);
+        });
+        r.addEventListener("mouseleave", function () { hideTip(tools.tip); });
+        g.appendChild(r);
+      });
+    }
+
+    ticks(g, IW, H + 20);
+    svg.appendChild(g);
+    tools.box.appendChild(svg);
+    thinTicks(svg);
+  }
+
+  // One row per skill, in the order the list above ranks them, each row a
+  // lane of marks on the shared clock. A mark's width is how long the skill
+  // ran, the same measure as the tool lane's, because that is what it is.
+  function drawSkills() {
+    if (!skills) return;
+    var W = skills.box.clientWidth, PAD = 46, ROW = 30, TOP = 4;
+    skills.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
+
+    var names = (D.skillUse || []).map(function (u) { return u.name; });
+    if (!names.length) {
+      return emptyState(skills, "No skills invoked in this run.");
+    }
+    clearEmptyState(skills);
+
+    var H = names.length * ROW;
+    var svg = s("svg", { height: H + 40, viewBox: "0 0 " + W + " " + (H + 40), role: "img",
+      "aria-label": "Every skill invocation in the run, one lane per skill, positioned by time." });
+    defs(svg);
+    var g = s("g", { transform: "translate(" + PAD + "," + TOP + ")" });
+    var IW = Math.max(10, W - PAD - 10);
+    annotate(g, IW, H, {});
+
+    names.forEach(function (name, i) {
+      var base = i * ROW + ROW - 8;
+      var label = s("text", { x: 0, y: i * ROW + 10, class: "tick" });
+      label.textContent = name;
+      g.appendChild(label);
+      g.appendChild(s("line", { x1: 0, y1: base, x2: IW, y2: base, class: "grid" }));
+
+      SKILLMARKS.forEach(function (t) {
+        if (skillOf(t) !== name) return;
+        var x0 = t.x * IW;
+        var w = t.hasDur ? Math.max(3, (t.w || 0) * IW) : 3;
+        var r = s("rect", {
+          x: x0, y: base - 7, width: w, height: 10, rx: 2, class: "tool",
+          fill: "var(" + (STATUS[t.outcome] || "--s-out") + ")"
+        });
+        r.addEventListener("mouseenter", function () {
+          var nodes = [el("div", { class: "t" }, name)];
+          nodes.push(tipRow("outcome", t.outcome, STATUS[t.outcome] || "--s-out"));
+          nodes.push(tipRow("duration", t.hasDur ? t.dur : "unknown"));
+          if (t.at) nodes.push(tipRow("at", t.at));
+          showTip(skills.tip, skills.box, x0 + PAD, H + 12, nodes);
+        });
+        r.addEventListener("mouseleave", function () { hideTip(skills.tip); });
+        g.appendChild(r);
+      });
+    });
+
+    ticks(g, IW, H + 20);
+    svg.appendChild(g);
+    skills.box.appendChild(svg);
+    thinTicks(svg);
+  }
+
+  function footerSection() {
+    var f = el("footer");
+    var r = D.reading;
+    // Where the transcript came from, and the two ways reading it can have
+    // gone wrong. Everything else this used to explain was either said better
+    // where it applies or was commentary nobody needed under every session.
+    var lines = [];
+    lines.push(r.steps + " steps read from " + m.path + ".");
+    if (r.truncated) lines.push("The last line was incomplete: the CLI was still writing this session when it was read.");
+    if (r.malformed) lines.push(r.malformed + " line(s) did not parse.");
+    var ul = el("ul");
+    lines.forEach(function (t) { ul.appendChild(el("li", null, t)); });
+    f.appendChild(el("div", null, "How this was read"));
+    f.appendChild(ul);
+
+    // What made the page, at the foot of it. The listing carries the same
+    // line, and the two have to stay written the same way.
+    var colophon = el("div", { class: "colophon" });
+    if (m.version) colophon.appendChild(el("span", null, "agtrace " + m.version));
+    if (m.repo) {
+      if (colophon.childNodes.length) colophon.appendChild(el("span", { class: "sep" }, "  ·  "));
+      colophon.appendChild(el("a", {
+        href: m.repo, target: "_blank", rel: "noopener noreferrer"
+      }, "GitHub"));
+    }
+    if (colophon.childNodes.length) f.appendChild(colophon);
+    root.appendChild(f);
+  }
+
+  function drawAll() { drawSpend(); drawFlow(); drawTools(); drawSkills(); }
+  drawAll();
+  footerSection();
+
+  var raf = 0;
+  addEventListener("resize", function () {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(drawAll);
+  });
+})();
+</script>
+</body>
+</html>

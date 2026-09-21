@@ -676,8 +676,14 @@
     });
     table.appendChild(el("thead")).appendChild(head);
 
+    // Newest first, which is the end of the run a reader arrives at the page
+    // caring about. The marks come in file order, so this is a reverse rather
+    // than a sort — `at` is formatted for reading ("Aug 26 16:37:57") and
+    // ordering that text would put August after September. The copy matters:
+    // D.compacts is the same array the rules and their hover targets are
+    // drawn from.
     var body = el("tbody");
-    (D.compacts || []).forEach(function (c) {
+    (D.compacts || []).slice().reverse().forEach(function (c) {
       var tr = el("tr");
       tr.appendChild(el("td", null, c.at || "—"));
       tr.appendChild(el("td", null, c.trigger || "—"));

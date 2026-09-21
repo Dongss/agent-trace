@@ -257,6 +257,7 @@ func TestSectionsAreInOrder(t *testing.T) {
 	want := []string{
 		`card("Tokens spent"`,
 		`card("Tokens over time"`,
+		`function compactionTable()`,
 		`usedList("Tools used"`,
 		`"Tool calls over time"`,
 		`usedList("Skills used"`,

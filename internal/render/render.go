@@ -220,12 +220,16 @@ type toolMark struct {
 
 type compactMark struct {
 	X       float64 `json:"x"`
+	At      string  `json:"at"`
 	Trigger string  `json:"trigger"`
 	Pre     int     `json:"pre"`
 	Post    int     `json:"post"`
-	Dropped int     `json:"dropped"`
-	Dur     string  `json:"dur"`
-	Label   string  `json:"label"`
+	// Dropped is cumulative over the run, not this event's own figure. What
+	// this compaction cut is Pre-Post; the table says so and this one is only
+	// worth showing as a running total.
+	Dropped int    `json:"dropped"`
+	Dur     string `json:"dur"`
+	Label   string `json:"label"`
 }
 
 type gapMark struct {
@@ -417,8 +421,18 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 		stat{"Output tokens", compact(t.All.Output), fmt.Sprintf("%s of it thinking", compact(t.All.Thinking))},
 		stat{"Cache read", compact(t.All.CacheRead), "context re-read"},
 		stat{"Cache write", compact(t.All.CacheWrite), "paid once, read back later"},
-		stat{"Tool calls", compact(t.ToolCalls), toolNote(t)},
 	)
+	// Compactions closes the run of context figures above rather than opening
+	// the run of activity below: what it reports is the context being cut, not
+	// something the agent did. Always shown, zero included — "no compactions"
+	// is a fact about a run worth reading, and a tile that appears only
+	// sometimes makes its absence look like a rendering gap rather than an
+	// answer.
+	compactions := stat{"Compactions", fmt.Sprintf("%d", len(run.Compacts)), "the context was never cut"}
+	if len(run.Compacts) > 0 {
+		compactions.Note = compact(t.DroppedByCompaction) + " tokens dropped"
+	}
+	out = append(out, compactions, stat{"Tool calls", compact(t.ToolCalls), toolNote(t)})
 	// Only where a skill was used. Most runs use none, and "Skills 0" on every
 	// one of them is a tile that never says anything.
 	if n := len(skills); n > 0 {
@@ -428,10 +442,6 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 		}
 		out = append(out, stat{"Skills", compact(calls),
 			fmt.Sprintf("across %d %s", n, plural(n, "skill"))})
-	}
-	if len(run.Compacts) > 0 {
-		out = append(out, stat{"Compactions", fmt.Sprintf("%d", len(run.Compacts)),
-			compact(t.DroppedByCompaction) + " tokens dropped"})
 	}
 	return out
 }
@@ -532,15 +542,16 @@ func buildCompacts(run *event.Run, clock *timeline.Clock) []compactMark {
 	for _, c := range run.Compacts {
 		at, ok := c.At, c.HasTime
 		if !ok {
-			// A compaction boundary carries no timestamp. Placing it by file
-			// order beats leaving the run's largest event off the chart.
+			// Every surveyed boundary carried a timestamp, but a transcript
+			// that omits one still has to plot: placing it by file order
+			// beats leaving the run's largest event off the chart.
 			at, ok = timeline.PlaceBySeq(run, c.Seq)
 		}
 		if !ok {
 			continue
 		}
 		out = append(out, compactMark{
-			X: clock.X(at), Trigger: c.Trigger,
+			X: clock.X(at), At: stampSec(at), Trigger: c.Trigger,
 			Pre: c.Pre, Post: c.Post, Dropped: c.Dropped,
 			Dur:   dur(c.Duration),
 			Label: compact(c.Pre) + " → " + compact(c.Post),

@@ -16,7 +16,7 @@ import (
 // What is committed instead is the *shapes*, reproduced from a survey of real
 // sessions written by Claude Code 2.1.231 through 2.1.275 on 2026-09-18:
 // per-block assistant entries repeating one usage object, a polymorphic
-// toolUseResult, a compaction boundary with no timestamp, and the nine entry
+// toolUseResult, a compaction boundary without a timestamp, and the nine entry
 // types that carry no timestamp at all. TestRealTranscripts at the end of this
 // file runs the parser over whatever real sessions the machine actually has,
 // and is skipped when there are none.
@@ -170,8 +170,10 @@ func TestOutOfOrderTimestampsGiveNoDuration(t *testing.T) {
 	}
 }
 
-// The compaction boundary is the most important entry in the file and carries
-// no timestamp.
+// The compaction boundary is the most important entry in the file. Every one
+// surveyed carried a timestamp, but the field is optional in the shape, and a
+// boundary without one still has to parse and be placed — which is what this
+// fixture leaves out to check.
 func TestCompactBoundary(t *testing.T) {
 	run := read(t,
 		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","message":{"role":"user","content":"go"}}`,

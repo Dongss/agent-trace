@@ -52,6 +52,18 @@
     flex-wrap:wrap; margin-bottom:9px; }
   .tools-used h2 { font-size:13px; font-weight:600; margin:0; }
   .tools-used .sum { font-size:12px; color:var(--ink-2); }
+  .scroll { overflow-x:auto; }
+  .tools-used table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  .tools-used th, .tools-used td { text-align:right; padding:5px 8px;
+    border-bottom:1px solid var(--border); white-space:nowrap;
+    font-variant-numeric:tabular-nums; }
+  .tools-used th:first-child, .tools-used td:first-child { text-align:left; }
+  .tools-used th { color:var(--muted); font-weight:500; font-size:11px;
+    letter-spacing:.04em; text-transform:uppercase; }
+  .tools-used tbody tr:last-child td { border-bottom:0; }
+  .tools-used td.empty-row { text-align:left; color:var(--ink-2);
+    font-variant-numeric:normal; }
+
   .toplist { display:grid; grid-template-columns:minmax(80px,max-content) minmax(60px,1fr) max-content max-content;
     align-items:center; gap:5px 10px; }
   .toplist .nm { font-size:12px; color:var(--ink); white-space:nowrap; overflow:hidden;
@@ -122,6 +134,7 @@
   .hover-line { stroke:var(--ink-2); stroke-width:1; stroke-dasharray:3 3; pointer-events:none; }
   .compact-line { stroke:var(--ink-2); stroke-width:1.5; }
   .compact-cap { fill:var(--ink-2); }
+  .compact-hit { cursor:default; }
   .tool { cursor:default; }
 
   .tip { position:absolute; z-index:5; pointer-events:none; min-width:150px; max-width:330px;
@@ -451,30 +464,51 @@
     return r;
   }
 
-  /* Axis annotations shared by the two token charts: compaction rules, idle
-     bands, date ticks. Drawn from the same clock, so a vertical line means the
-     same instant in both. */
+  /* Axis annotations, drawn from the same clock so a mark means the same
+     instant in every chart that carries it.
+     Idle bands go on all of them. Compaction rules go only where they explain
+     something: what a compaction does is cut the context, so it shows on the
+     token charts and nowhere else. On the tool and skill lanes it was a
+     vertical line through unrelated marks. */
   function annotate(g, W, H, opts) {
     (D.gaps || []).forEach(function (gp) {
       var x = gp.x * W;
       g.appendChild(s("rect", { x: x - 3, y: 0, width: 6, height: H, fill: "url(#idle)" }));
-      if (opts.labelGaps) {
-        var t = s("text", { x: x, y: -4, "text-anchor": "middle" });
-        t.textContent = gp.label;
-        g.appendChild(t);
-      }
     });
+    if (!opts.compacts) return;
     (D.compacts || []).forEach(function (c) {
       var x = c.x * W;
       g.appendChild(s("line", { x1: x, y1: 0, x2: x, y2: H, class: "compact-line" }));
       g.appendChild(s("circle", { cx: x, cy: 0, r: 3, class: "compact-cap" }));
-      if (opts.labelCompacts) {
-        var t = s("text", { x: x, y: -6, "text-anchor": x > W * 0.85 ? "end" : "middle" });
-        t.textContent = c.label;
-        g.appendChild(t);
-      }
     });
   }
+  // A compaction rule is 1.5px wide, which is not a hover target, so each one
+  // gets an invisible band over it. These go on last, after the chart's own
+  // full-width crosshair rect, or that rect would sit on top and swallow
+  // every one of them.
+  function compactHits(card, g, W, H) {
+    (D.compacts || []).forEach(function (c) {
+      var x = c.x * W;
+      var hit = s("rect", {
+        x: x - 5, y: 0, width: 10, height: H, fill: "transparent", class: "compact-hit"
+      });
+      hit.addEventListener("mouseenter", function () {
+        // Dropped is cumulative over the run, so what this one cut is the
+        // difference between the two levels beside it.
+        var nodes = [el("div", { class: "t" }, "compaction" + (c.at ? "  ·  " + c.at : ""))];
+        nodes.push(tipRow("context before", num(c.pre)));
+        nodes.push(tipRow("after", num(c.post)));
+        nodes.push(tipRow("cut here", num(Math.max(0, c.pre - c.post))));
+        if (c.dropped) nodes.push(tipRow("dropped by now", num(c.dropped)));
+        nodes.push(tipRow("trigger", c.trigger || "unrecorded"));
+        if (c.dur) nodes.push(tipRow("took", c.dur));
+        showTip(card.tip, card.box, x + 46, 8, nodes);
+      });
+      hit.addEventListener("mouseleave", function () { hideTip(card.tip); });
+      g.appendChild(hit);
+    });
+  }
+
   // Ticks mark the start of each working stretch. Whether two labels collide
   // depends on how wide they render, which depends on the viewer's font — and
   // on the anchor, since the first and last are start- and end-aligned rather
@@ -617,6 +651,54 @@
   var flow = card("Tokens over time", null, SPEND);
   flow.redraw = function () { drawFlow(); };
 
+  // Every compaction the run had, beside the chart whose rules mark them.
+  // The table is drawn even when the run had none, with a row saying so: an
+  // absent table reads as a rendering gap, and "the context was never cut" is
+  // a fact about a session worth stating rather than leaving to be inferred.
+  //
+  // "Cut" is this compaction's own figure, pre minus post. The transcript's
+  // droppedTokens is cumulative over the run, which is the wrong number for a
+  // row and the right one for the tile above.
+  (function compactionTable() {
+    var box = el("div", { class: "tools-used" });
+    var hd = el("div", { class: "hd" });
+    hd.appendChild(el("h2", null, "Compactions"));
+    var n = (D.compacts || []).length;
+    hd.appendChild(el("span", { class: "sum" },
+      n === 0 ? "the context was never cut" : n + (n === 1 ? " compaction" : " compactions")));
+    box.appendChild(hd);
+
+    var wrap = el("div", { class: "scroll" });
+    var table = el("table");
+    var head = el("tr");
+    ["At", "Trigger", "Before", "After", "Cut", "Took"].forEach(function (h) {
+      head.appendChild(el("th", null, h));
+    });
+    table.appendChild(el("thead")).appendChild(head);
+
+    var body = el("tbody");
+    (D.compacts || []).forEach(function (c) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, c.at || "—"));
+      tr.appendChild(el("td", null, c.trigger || "—"));
+      tr.appendChild(el("td", null, num(c.pre)));
+      tr.appendChild(el("td", null, num(c.post)));
+      tr.appendChild(el("td", null, num(Math.max(0, c.pre - c.post))));
+      tr.appendChild(el("td", null, c.dur || "—"));
+      body.appendChild(tr);
+    });
+    if (!n) {
+      var empty = el("tr");
+      var td = el("td", { colspan: "6", class: "empty-row" }, "No compactions in this run.");
+      empty.appendChild(td);
+      body.appendChild(empty);
+    }
+    table.appendChild(body);
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+    root.appendChild(box);
+  })();
+
   /* ---------- 3. tools: what, then when ---------- */
   // MCP tool names are shortened to server/tool; a skill's name is whatever it
   // was invoked by, plugin prefix included. Each subject gets the pair: the
@@ -697,7 +779,7 @@
     var max = (only ? end[only] : D.scales.maxTotal) || 1;
     var y = function (v) { return H - (v / max) * H; };
     yGrid(g, IW, H, max, function (v) { return compact(Math.round(v)); });
-    annotate(g, IW, H, { labelCompacts: false, labelGaps: false });
+    annotate(g, IW, H, { compacts: true });
 
     // Stacked from the largest layer up, as in the level chart, so the
     // dominant series is the base and the thin ones ride on a flat edge.
@@ -732,6 +814,7 @@
     g.appendChild(hl);
     var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
     g.appendChild(hit);
+    compactHits(spend, g, IW, H);
     svg.appendChild(g);
     spend.box.appendChild(svg);
     thinTicks(svg);
@@ -789,7 +872,7 @@
     var IW = Math.max(10, W - PAD - 10);
     var N = D.scales.bins;
     yGrid(g, IW, H, max, function (v) { return compact(Math.round(v)); });
-    annotate(g, IW, H, {});
+    annotate(g, IW, H, { compacts: true });
 
     var colW = IW / N;
     var bw = Math.max(1, colW - 2); // 2px surface gap between adjacent columns
@@ -833,6 +916,7 @@
     g.appendChild(hl);
     var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
     g.appendChild(hit);
+    compactHits(flow, g, IW, H);
     svg.appendChild(g);
     flow.box.appendChild(svg);
     thinTicks(svg);

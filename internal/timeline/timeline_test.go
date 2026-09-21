@@ -111,8 +111,8 @@ func TestTicksThinEvenlyAndKeepTheEnds(t *testing.T) {
 	}
 }
 
-// A compaction boundary has no timestamp of its own, so it is placed between
-// the entries it sits between in file order.
+// A compaction boundary that carries no timestamp of its own is placed
+// between the entries it sits between in file order.
 func TestPlaceBySeq(t *testing.T) {
 	run := &event.Run{Steps: []event.Step{
 		{Seq: 10, At: at("2026-09-01T10:00:00Z"), HasTime: true},

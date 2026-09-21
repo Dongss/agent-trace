@@ -142,9 +142,10 @@ func Order(run *event.Run) []int {
 }
 
 // PlaceBySeq gives an untimed entry a position on the clock by interpolating
-// between the nearest timestamped steps on either side in file order. A
-// compaction boundary carries no timestamp, and dropping it off the timeline
-// for that reason would lose the most important event in the file.
+// between the nearest timestamped steps on either side in file order. It
+// exists for the compaction boundary: every surveyed one carried a timestamp,
+// but one that does not still has to be plotted, because dropping it would
+// lose the most important event in the file.
 func PlaceBySeq(run *event.Run, seq int) (time.Time, bool) {
 	var before, after time.Time
 	var haveBefore, haveAfter bool

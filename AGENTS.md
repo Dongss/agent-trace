@@ -59,10 +59,12 @@ Code that ignores one produces a timeline that looks right and is wrong.
   permutation. `timeline.Order` gives every step an effective time first, then
   sorts by (time, seq).
 
-- **A compaction boundary has no timestamp**, and it is the most important
-  entry in the file. It is placed by interpolating between its neighbours in
-  file order. Dropping it for want of a timestamp loses the run's largest
-  event.
+- **A compaction boundary may carry no timestamp**, and it is the most
+  important entry in the file. Every one of the 17 surveyed did carry one
+  (2.1.228 through 2.1.276), so `PlaceBySeq` is a fallback rather than the
+  usual path — but it is the fallback that matters, because dropping the
+  boundary for want of a timestamp would lose the run's largest event.
+  `Compact.HasTime` says which case a given one is.
 
 - **Nine entry types carry no timestamp at all** — `cost-state`,
   `file-history-snapshot`, `mode`, `permission-mode`, `ai-title`,

@@ -18,8 +18,10 @@
 //     session) and nine entry types carry none at all. File order is the only
 //     total order that always exists, so it is what Seq records.
 //
-//   - A compaction boundary has no timestamp, which is awkward because it is
-//     the single most important event in the file. It is placed by Seq.
+//   - A compaction boundary may carry no timestamp, which would be awkward
+//     because it is the single most important event in the file. Every
+//     surveyed one had a timestamp; HasTime says so per entry, and Seq places
+//     the ones that do not.
 package claudecode
 
 import (

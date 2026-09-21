@@ -457,3 +457,69 @@ func TestSkillUseCountsByNameAndIgnoresOtherTools(t *testing.T) {
 		t.Error("a run that invoked no skill listed one")
 	}
 }
+
+// "No compactions" is a fact about a run worth reading. A tile that appears
+// only sometimes makes its absence look like a rendering gap rather than an
+// answer, so the count is always shown and the note carries the meaning.
+func TestCompactionsTileIsAlwaysShown(t *testing.T) {
+	find := func(v view) (stat, bool) {
+		for _, s := range v.Stats {
+			if s.Label == "Compactions" {
+				return s, true
+			}
+		}
+		return stat{}, false
+	}
+
+	none := build(&event.Run{Steps: []event.Step{
+		{Seq: 1, Kind: event.KindAssistant, At: at("2026-09-18T10:00:00Z"), HasTime: true,
+			Usage: &event.Usage{Input: 1, Output: 1}},
+	}}, Options{})
+	s, ok := find(none)
+	if !ok {
+		t.Fatal("a run with no compaction has no Compactions tile")
+	}
+	if s.Value != "0" || !strings.Contains(s.Note, "never cut") {
+		t.Errorf("with none: %q / %q", s.Value, s.Note)
+	}
+
+	some := build(&event.Run{
+		Steps:    []event.Step{{Seq: 1, Kind: event.KindAssistant, At: at("2026-09-18T10:00:00Z"), HasTime: true, Usage: &event.Usage{Input: 1, Output: 1}}},
+		Compacts: []event.Compact{{Seq: 2, Trigger: "auto", Pre: 180000, Post: 12000, Dropped: 168000}},
+	}, Options{})
+	s, _ = find(some)
+	if s.Value != "1" || !strings.Contains(s.Note, "dropped") {
+		t.Errorf("with one: %q / %q", s.Value, s.Note)
+	}
+}
+
+// The table and the tooltip both name the moment a compaction happened, so
+// the mark carries it. A boundary with no timestamp of its own is placed by
+// file order, and the label follows it there.
+func TestCompactMarkCarriesItsMoment(t *testing.T) {
+	run := &event.Run{
+		Steps: []event.Step{
+			{Seq: 1, Kind: event.KindAssistant, At: at("2026-09-18T10:00:00Z"), HasTime: true, Usage: &event.Usage{Input: 1, Output: 1}},
+			{Seq: 3, Kind: event.KindAssistant, At: at("2026-09-18T10:10:00Z"), HasTime: true, Usage: &event.Usage{Input: 1, Output: 1}},
+		},
+		Compacts: []event.Compact{
+			{Seq: 2, Trigger: "auto", Pre: 180000, Post: 12000, Dropped: 168000, Duration: 4 * time.Second},
+		},
+	}
+	v := build(run, Options{})
+	if len(v.Compacts) != 1 {
+		t.Fatalf("got %d marks, want 1", len(v.Compacts))
+	}
+	c := v.Compacts[0]
+	if c.At == "" {
+		t.Error("the mark carries no timestamp, so the table has nothing to print")
+	}
+	// What this one cut is pre-post; Dropped is the run's running total and is
+	// a different number the row must not confuse it with.
+	if c.Pre-c.Post != 168000 {
+		t.Errorf("pre-post = %d, want 168000", c.Pre-c.Post)
+	}
+	if c.Trigger != "auto" || c.Dur == "" {
+		t.Errorf("mark = %+v", c)
+	}
+}

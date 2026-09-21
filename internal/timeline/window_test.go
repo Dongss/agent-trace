@@ -101,8 +101,8 @@ func TestWindowDropsUntimedSteps(t *testing.T) {
 	}
 }
 
-// A compaction carries no timestamp and is placed from the original run, whose
-// neighbours the window is about to remove.
+// A compaction with no timestamp of its own is placed from the original run,
+// whose neighbours the window is about to remove.
 func TestWindowPlacesCompactionsFromTheFullRun(t *testing.T) {
 	run := windowRun()
 	placed, ok := PlaceBySeq(run, 5)

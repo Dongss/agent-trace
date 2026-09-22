@@ -35,6 +35,9 @@ type Run struct {
 	// It is not a subagent's name.
 	AgentName string
 	Versions  []string // CLI versions seen, ascending; a long session spans several
+	// Surfaces is what drove the run, in the order each first appeared, with
+	// the versions seen under each. See Surface.
+	Surfaces []Surface
 
 	Start, End time.Time // first and last timestamped entry
 
@@ -61,6 +64,21 @@ type Run struct {
 	// 2026-09-20; the fields stay because the window is still a slice of
 	// something and only these remember what.
 	FullStart, FullEnd time.Time
+}
+
+// A Surface is one thing that drove the run: a terminal, an editor extension,
+// an SDK. The name is whatever the CLI calls it, carried through unmapped —
+// the set is open, a release can add to it, and a name nobody here recognises
+// is still the true answer to "what ran this".
+//
+// Versions are grouped per surface rather than pooled, because the surfaces
+// do not share a build. A session resumed from an editor extension carries
+// that extension's bundled CLI, which can be an older release than the
+// terminal's: one surveyed session went 2.1.270 → 2.1.263 on the switch, and
+// a single range over the run would have reported it backwards.
+type Surface struct {
+	Name     string   // the CLI's own string; "" where it records none
+	Versions []string // ascending by value
 }
 
 // StepKind is what a step represents on the timeline.

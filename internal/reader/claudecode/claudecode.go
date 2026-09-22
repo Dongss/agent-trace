@@ -82,6 +82,7 @@ func Read(r io.Reader, path string, opt Options) (*event.Run, error) {
 		seenMsg:  map[string]bool{},
 		cwdCount: map[string]int{},
 		versions: map[string]bool{},
+		surfaces: map[string]map[string]bool{},
 	}
 
 	// A transcript line can be megabytes long — a Read of a large file, a
@@ -129,12 +130,32 @@ type parser struct {
 	pending map[string]*pendingTool
 	// seenMsg deduplicates usage across the several entries one API response is
 	// written as.
-	seenMsg     map[string]bool
-	cwdCount    map[string]int
-	versions    map[string]bool
-	stated      *event.Stated
-	title       string
-	customTitle string
+	seenMsg  map[string]bool
+	cwdCount map[string]int
+	versions map[string]bool
+	// surfaces maps an entrypoint to the versions seen under it, with
+	// surfaceOrder keeping the order each was first seen: a session that moved
+	// from the terminal to an editor reads in the order it happened.
+	surfaces     map[string]map[string]bool
+	surfaceOrder []string
+	stated       *event.Stated
+	title        string
+	customTitle  string
+}
+
+// surface records an entrypoint and, when the entry carries one, a version
+// under it. The name is kept whether or not a version came with it: what ran
+// the session is worth knowing on its own.
+func (p *parser) surface(name, version string) {
+	vs, ok := p.surfaces[name]
+	if !ok {
+		vs = map[string]bool{}
+		p.surfaces[name] = vs
+		p.surfaceOrder = append(p.surfaceOrder, name)
+	}
+	if version != "" {
+		vs[version] = true
+	}
 }
 
 func (p *parser) line(seq int, s string) error {
@@ -151,6 +172,13 @@ func (p *parser) line(seq int, s string) error {
 	}
 	if e.Version != "" {
 		p.versions[e.Version] = true
+	}
+	// Every version-carrying entry in the survey also carried an entrypoint,
+	// but the two are recorded independently, so either alone opens a surface.
+	// A version with no entrypoint lands under the unnamed one, which prints
+	// as the bare version range it used to be.
+	if e.Entrypoint != "" || e.Version != "" {
+		p.surface(e.Entrypoint, e.Version)
 	}
 	if e.GitBranch != "" {
 		p.run.GitBranch = e.GitBranch
@@ -456,6 +484,16 @@ func (p *parser) finish() {
 	sort.Slice(p.run.Versions, func(i, j int) bool {
 		return compareVersions(p.run.Versions[i], p.run.Versions[j]) < 0
 	})
+	for _, name := range p.surfaceOrder {
+		s := event.Surface{Name: name}
+		for v := range p.surfaces[name] {
+			s.Versions = append(s.Versions, v)
+		}
+		sort.Slice(s.Versions, func(i, j int) bool {
+			return compareVersions(s.Versions[i], s.Versions[j]) < 0
+		})
+		p.run.Surfaces = append(p.run.Surfaces, s)
+	}
 
 	for _, st := range p.run.Steps {
 		if !st.HasTime {

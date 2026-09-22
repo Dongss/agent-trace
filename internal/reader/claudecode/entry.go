@@ -30,6 +30,7 @@ type entry struct {
 	CWD               string `json:"cwd"`
 	GitBranch         string `json:"gitBranch"`
 	Version           string `json:"version"`
+	Entrypoint        string `json:"entrypoint"`
 	RequestID         string `json:"requestId"`
 	Effort            string `json:"effort"`
 

@@ -236,8 +236,8 @@
     h1.appendChild(el("span", { class: "id" }, m.short));
   }
   left.appendChild(h1);
-  // Two lines, because one was long enough to wrap on its own and wrap badly:
-  // where the session is, then when it ran and what ran it. A 90-character
+  // Three lines, because one was long enough to wrap on its own and wrap
+  // badly: where the session is, what ran it, then when. A 90-character
   // working directory now pushes nothing but itself around.
   var sub = el("div", { class: "sub" });
   if (m.agentName || m.title) {
@@ -248,19 +248,30 @@
   if (m.branch) sub.appendChild(el("span", null, "  ·  branch " + m.branch));
   left.appendChild(sub);
 
+  // What drove the run and the releases seen under each. Grouped by
+  // entrypoint rather than pooled into one range, because the surfaces do not
+  // share a build — an editor extension bundles its own CLI, and a session
+  // resumed there can move to an older release than the terminal was on.
+  //
+  // Which agent CLI wrote the transcript is not on the page at all. It is one
+  // word and, while Claude Code is the only reader, the same word every time,
+  // so it answered nothing wherever it was put. Whatever brings a second
+  // reader should put it back somewhere it distinguishes two things.
   var sub2 = el("div", { class: "sub" });
-  if (m.start) sub2.appendChild(el("span", null, m.start + " → " + m.end));
-  if (m.source) {
-    // The CLI and its releases: a property of the run, so it reads with the
-    // run's dates rather than sitting among the page's own controls.
+  (m.surfaces || []).forEach(function (sf) {
     if (sub2.childNodes.length) sub2.appendChild(el("span", null, "  ·  "));
-    var src = el("span", null, m.source + (m.versions ? " " + m.versions : ""));
-    if (m.versionCount > 2) {
-      src.setAttribute("title", m.versionCount + " releases across this run: " + m.versionsAll);
+    var t = el("span", null, sf.name ? sf.name + " " + sf.versions : sf.versions);
+    if (sf.count > 2) {
+      t.setAttribute("title", sf.count + " releases under " +
+        (sf.name || "this run") + ": " + sf.all);
     }
-    sub2.appendChild(src);
-  }
+    sub2.appendChild(t);
+  });
   if (sub2.childNodes.length) left.appendChild(sub2);
+
+  var sub3 = el("div", { class: "sub" });
+  if (m.start) sub3.appendChild(el("span", null, m.start + " → " + m.end));
+  if (sub3.childNodes.length) left.appendChild(sub3);
   head.appendChild(left);
   root.appendChild(head);
 

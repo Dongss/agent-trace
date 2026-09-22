@@ -139,27 +139,24 @@ type view struct {
 }
 
 type meta struct {
-	SessionID    string `json:"sessionId"`
-	Short        string `json:"short"`
-	Title        string `json:"title"`
-	AgentName    string `json:"agentName"`
-	Source       string `json:"source"`
-	Versions     string `json:"versions"`    // compact: one version, or first → last
-	VersionsAll  string `json:"versionsAll"` // every version seen, for the tooltip
-	VersionCount int    `json:"versionCount"`
-	CWD          string `json:"cwd"`
-	Branch       string `json:"branch"`
-	Path         string `json:"path"`
-	Start        string `json:"start"`
-	End          string `json:"end"`
-	SpanText     string `json:"spanText"`
-	Active       string `json:"activeText"`
-	Generated    string `json:"generated"`
-	Live         bool   `json:"live"`
-	Back         string `json:"back"`
-	BackLabel    string `json:"backLabel"`
-	Version      string `json:"version"`
-	Repo         string `json:"repo"`
+	SessionID string    `json:"sessionId"`
+	Short     string    `json:"short"`
+	Title     string    `json:"title"`
+	AgentName string    `json:"agentName"`
+	Surfaces  []surface `json:"surfaces"` // what ran the session, and under which releases
+	CWD       string    `json:"cwd"`
+	Branch    string    `json:"branch"`
+	Path      string    `json:"path"`
+	Start     string    `json:"start"`
+	End       string    `json:"end"`
+	SpanText  string    `json:"spanText"`
+	Active    string    `json:"activeText"`
+	Generated string    `json:"generated"`
+	Live      bool      `json:"live"`
+	Back      string    `json:"back"`
+	BackLabel string    `json:"backLabel"`
+	Version   string    `json:"version"`
+	Repo      string    `json:"repo"`
 
 	// Windowed and the spans below describe a view of part of a run.
 	Windowed  bool   `json:"windowed"`
@@ -287,21 +284,18 @@ func build(run *event.Run, opt Options) view {
 
 	v := view{
 		Meta: meta{
-			SessionID:    run.SessionID,
-			Short:        short(run.SessionID),
-			Title:        run.Title,
-			AgentName:    run.AgentName,
-			Source:       string(run.Source),
-			Versions:     versionRange(run.Versions),
-			VersionsAll:  strings.Join(run.Versions, ", "),
-			VersionCount: len(run.Versions),
-			CWD:          run.CWD,
-			Branch:       run.GitBranch,
-			Path:         run.Path,
-			Generated:    stamp(time.Now()),
-			Live:         run.Truncated,
-			Back:         opt.Back,
-			BackLabel:    backLabel(opt),
+			SessionID: run.SessionID,
+			Short:     short(run.SessionID),
+			Title:     run.Title,
+			AgentName: run.AgentName,
+			Surfaces:  surfaces(run.Surfaces),
+			CWD:       run.CWD,
+			Branch:    run.GitBranch,
+			Path:      run.Path,
+			Generated: stamp(time.Now()),
+			Live:      run.Truncated,
+			Back:      opt.Back,
+			BackLabel: backLabel(opt),
 		},
 	}
 	if !run.Start.IsZero() {
@@ -756,6 +750,30 @@ func inputStamp(t time.Time) string {
 		return ""
 	}
 	return t.Local().Format("2006-01-02T15:04")
+}
+
+// A surface is one entrypoint on the meta line: what drove the session, and
+// the releases seen under it. The name is printed as the transcript wrote it
+// — nothing is mapped to a friendlier word, because the set is open and a
+// guess at a name this build has never seen reads as fact.
+type surface struct {
+	Name     string `json:"name"`
+	Versions string `json:"versions"` // compact: one, two, or first → last
+	All      string `json:"all"`      // every release under this name
+	Count    int    `json:"count"`
+}
+
+func surfaces(in []event.Surface) []surface {
+	out := make([]surface, 0, len(in))
+	for _, s := range in {
+		out = append(out, surface{
+			Name:     s.Name,
+			Versions: versionRange(s.Versions),
+			All:      strings.Join(s.Versions, ", "),
+			Count:    len(s.Versions),
+		})
+	}
+	return out
 }
 
 // versionRange compacts the CLI versions a run spans. A long session crosses a

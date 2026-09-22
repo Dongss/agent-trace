@@ -322,11 +322,51 @@ func TestArgumentsAreKeptAsRecorded(t *testing.T) {
 	}
 }
 
+// What drove the run is recorded per entry, and one session can cross two: a
+// terminal session picked up in an editor. The surfaces come out in the order
+// they first appeared, each holding only the releases seen under it, because
+// an editor extension bundles its own CLI — here an older one, which pooled
+// into a single range would read as the run going backwards.
+func TestSurfacesGroupVersionsByEntrypoint(t *testing.T) {
+	run := read(t,
+		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","version":"2.1.270","entrypoint":"cli","message":{"role":"user","content":"hi"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-09-18T11:00:00.000Z","version":"2.1.263","entrypoint":"claude-vscode","message":{"role":"user","content":"hi"}}`,
+		`{"type":"user","uuid":"u3","timestamp":"2026-09-18T12:00:00.000Z","version":"2.1.266","entrypoint":"claude-vscode","message":{"role":"user","content":"hi"}}`,
+	)
+	if len(run.Surfaces) != 2 {
+		t.Fatalf("surfaces %+v", run.Surfaces)
+	}
+	if run.Surfaces[0].Name != "cli" || strings.Join(run.Surfaces[0].Versions, ",") != "2.1.270" {
+		t.Errorf("first surface %+v, want the terminal it started in", run.Surfaces[0])
+	}
+	if run.Surfaces[1].Name != "claude-vscode" ||
+		strings.Join(run.Surfaces[1].Versions, ",") != "2.1.263,2.1.266" {
+		t.Errorf("second surface %+v", run.Surfaces[1])
+	}
+	// The flat list stays what it always was: every release, ascending. It is
+	// the union of the surfaces, not a substitute for them.
+	if strings.Join(run.Versions, ",") != "2.1.263,2.1.266,2.1.270" {
+		t.Errorf("versions %v", run.Versions)
+	}
+}
+
+// A transcript that records no entrypoint still reports its releases, under a
+// surface with no name, which prints as the bare version range it always was.
+func TestSurfaceWithoutAnEntrypointIsUnnamed(t *testing.T) {
+	run := read(t,
+		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","version":"2.1.231","message":{"role":"user","content":"hi"}}`,
+	)
+	if len(run.Surfaces) != 1 || run.Surfaces[0].Name != "" ||
+		strings.Join(run.Surfaces[0].Versions, ",") != "2.1.231" {
+		t.Errorf("surfaces %+v", run.Surfaces)
+	}
+}
+
 func TestSessionMetadata(t *testing.T) {
 	run := read(t,
-		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","sessionId":"sess-1","cwd":"/w/a","version":"2.1.270","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
-		`{"type":"user","uuid":"u2","timestamp":"2026-09-18T11:00:00.000Z","sessionId":"sess-1","cwd":"/w/b","version":"2.1.231","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
-		`{"type":"user","uuid":"u3","timestamp":"2026-09-18T12:00:00.000Z","sessionId":"sess-1","cwd":"/w/b","version":"2.1.270","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
+		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","sessionId":"sess-1","cwd":"/w/a","version":"2.1.270","entrypoint":"cli","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-09-18T11:00:00.000Z","sessionId":"sess-1","cwd":"/w/b","version":"2.1.231","entrypoint":"cli","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
+		`{"type":"user","uuid":"u3","timestamp":"2026-09-18T12:00:00.000Z","sessionId":"sess-1","cwd":"/w/b","version":"2.1.270","entrypoint":"cli","gitBranch":"main","message":{"role":"user","content":"hi"}}`,
 	)
 	if run.SessionID != "sess-1" {
 		t.Errorf("session %q", run.SessionID)
@@ -337,6 +377,11 @@ func TestSessionMetadata(t *testing.T) {
 	// A long session spans releases; all of them are reported, in order.
 	if strings.Join(run.Versions, ",") != "2.1.231,2.1.270" {
 		t.Errorf("versions %v", run.Versions)
+	}
+	// One entrypoint here, so the grouping has one member holding the lot.
+	if len(run.Surfaces) != 1 || run.Surfaces[0].Name != "cli" ||
+		strings.Join(run.Surfaces[0].Versions, ",") != "2.1.231,2.1.270" {
+		t.Errorf("surfaces %+v", run.Surfaces)
 	}
 	if !run.Start.Equal(time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)) || !run.End.Equal(time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)) {
 		t.Errorf("span %s → %s", run.Start, run.End)

@@ -61,8 +61,9 @@
   .tools-used th { color:var(--muted); font-weight:500; font-size:11px;
     letter-spacing:.04em; text-transform:uppercase; }
   .tools-used tbody tr:last-child td { border-bottom:0; }
-  .tools-used td.empty-row { text-align:left; color:var(--ink-2);
+  .tools-used .empty-row { text-align:left; color:var(--ink-2);
     font-variant-numeric:normal; }
+  .tools-used div.empty-row { font-size:12.5px; padding:5px 8px; }
 
   .toplist { display:grid; grid-template-columns:minmax(80px,max-content) minmax(60px,1fr) max-content max-content;
     align-items:center; gap:5px 10px; }
@@ -610,17 +611,30 @@
   // seeing. Ranked busiest first, with each bar measured against the busiest
   // rather than against the total — shares of a long tail are all the same
   // invisible sliver. One series, so it wears the ink token and spends no
-  // categorical slot. A list with nothing in it is left out entirely.
-  function usedList(title, items, countWord, itemWord) {
-    if (!items || !items.length) return;
+  // categorical slot.
+  //
+  // A list with nothing in it still renders, saying so in a line. Every
+  // session shows the same sections in the same order, because a block that
+  // disappears with its data reads as a rendering fault rather than as an
+  // answer, and nothing on the page then distinguishes a session that called
+  // no tools from one whose list failed to draw.
+  function usedList(title, items, countWord, itemWord, emptyNote, emptyRow) {
+    items = items || [];
     var box = el("div", { class: "tools-used" });
     var hd = el("div", { class: "hd" });
     hd.appendChild(el("h2", null, title));
     var calls = items.reduce(function (a, t) { return a + t.n; }, 0);
-    hd.appendChild(el("span", { class: "sum" },
-      num(calls) + " " + (calls === 1 ? countWord : countWord + "s") + " across " +
-      items.length + " " + (items.length === 1 ? itemWord : itemWord + "s")));
+    hd.appendChild(el("span", { class: "sum" }, items.length
+      ? num(calls) + " " + (calls === 1 ? countWord : countWord + "s") + " across " +
+        items.length + " " + (items.length === 1 ? itemWord : itemWord + "s")
+      : emptyNote));
     box.appendChild(hd);
+
+    if (!items.length) {
+      box.appendChild(el("div", { class: "empty-row" }, emptyRow));
+      root.appendChild(box);
+      return;
+    }
 
     var list = el("div", { class: "toplist" });
     var top = items[0].n || 1;
@@ -709,22 +723,25 @@
   // MCP tool names are shortened to server/tool; a skill's name is whatever it
   // was invoked by, plugin prefix included. Each subject gets the pair: the
   // ranked list says what it reached for, the lane under it says when.
-  usedList("Tools used", D.toolUse, "call", "tool");
+  usedList("Tools used", D.toolUse, "call", "tool",
+    "nothing was called", "No tools were called in this run.");
 
   var toolLegend = [{ token: "--st-ok", label: "ok", key: "ok" }];
   (D.outcomes || []).forEach(function (o) {
     if (o.label !== "ok") toolLegend.push({ token: STATUS[o.label] || "--muted", label: o.label, key: o.label });
   });
-  // Form follows density. Up to a couple of hundred calls, one mark each reads
-  // cleanly and its width carries the duration. Past that the marks overlap
-  // into a solid block that says only "there were many", so the lane switches
-  // to counts per slice — which is what a crowd of calls actually supports.
-  var DENSE = (D.tools || []).length > 250;
-  var tools = card(DENSE ? "Tool calls over time" : "Tool calls", null, toolLegend);
+  // One form at every density: counts per slice. A mark per call carries its
+  // own duration and is the better read while there is room for it, but past
+  // a couple of hundred calls the marks overlap into a solid block that says
+  // only "there were many" — and a chart that changes shape between sessions
+  // cannot be compared across them. The per-slice tooltip names the longest
+  // call in the slice, which is what the per-mark hover was mostly asked for.
+  var tools = card("Tool calls over time", null, toolLegend);
   tools.redraw = function () { drawTools(); };
 
   /* ---------- 4. skills: what, then when ---------- */
-  usedList("Skills used", D.skillUse, "invocation", "skill");
+  usedList("Skills used", D.skillUse, "invocation", "skill",
+    "no skills were invoked", "No skills were invoked in this run.");
 
   // A skill invocation is a Skill tool call, so its marks are already in
   // D.tools; the skill's own name is the call's brief. One lane per skill
@@ -732,7 +749,7 @@
   // row labelled with its name identifies itself without a colour or a hover.
   function skillOf(t) { return t.brief || "(unrecorded)"; }
   var SKILLMARKS = (D.tools || []).filter(function (t) { return t.name === "Skill"; });
-  var skills = SKILLMARKS.length ? card("Skill invocations over time", null, null) : null;
+  var skills = card("Skill invocations over time", null, null);
 
   // An empty grid with an invented scale says less than a sentence does.
   function emptyState(c, msg) {
@@ -960,11 +977,10 @@
   var OUTCOME_ORDER = ["ok", "unpaired", "interrupted", "denied", "error"];
 
   function drawTools() {
-    var W = tools.box.clientWidth, PAD = 46;
-    var H = DENSE ? 74 : 34;
+    var W = tools.box.clientWidth, PAD = 46, H = 74;
     tools.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
     if (!D.tools || !D.tools.length) {
-      return emptyState(tools, "No tool calls in this run.");
+      return emptyState(tools, "No tool calls to place on the clock.");
     }
     // The legend filters by outcome here. Order survives it, and order is
     // load-bearing: the Go side puts failures last so they draw on top.
@@ -977,97 +993,75 @@
     }
     clearEmptyState(tools);
     var svg = s("svg", { height: H + 40, viewBox: "0 0 " + W + " " + (H + 40), role: "img",
-      "aria-label": (DENSE
-        ? "Tool calls counted per slice of the run, stacked by outcome."
-        : "Every tool call in the run, positioned by time and coloured by outcome.") +
+      "aria-label": "Tool calls counted per slice of the run, stacked by outcome." +
         (only ? " Showing calls with the outcome " + only + " only." : "") });
     defs(svg);
     var g = s("g", { transform: "translate(" + PAD + ",8)" });
     var IW = Math.max(10, W - PAD - 10);
     var N = D.scales.bins;
 
-    if (DENSE) {
-      // Counts per slice: a flow, so summing over the slice is the right
-      // aggregate, unlike the level chart above.
-      var cols = {}, maxN = 0;
-      marks.forEach(function (t) {
-        var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
-        var c = cols[b] || (cols[b] = { n: 0, slow: null });
-        c[t.outcome] = (c[t.outcome] || 0) + 1;
-        c.n++;
-        if (t.hasDur && (!c.slow || t.w > c.slow.w)) c.slow = t;
-        if (c.n > maxN) maxN = c.n;
-      });
-      yGrid(g, IW, H, maxN || 1, function (v) { return String(Math.round(v)); });
-      annotate(g, IW, H, {});
+    // Counts per slice: a flow, so summing over the slice is the right
+    // aggregate, unlike the level chart above.
+    var cols = {}, maxN = 0;
+    marks.forEach(function (t) {
+      var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
+      var c = cols[b] || (cols[b] = { n: 0, slow: null });
+      c[t.outcome] = (c[t.outcome] || 0) + 1;
+      c.n++;
+      if (t.hasDur && (!c.slow || t.w > c.slow.w)) c.slow = t;
+      if (c.n > maxN) maxN = c.n;
+    });
+    yGrid(g, IW, H, maxN || 1, function (v) { return String(Math.round(v)); });
+    annotate(g, IW, H, {});
 
-      var colW = IW / N, bw = Math.max(1, colW - 2);
+    var colW = IW / N, bw = Math.max(1, colW - 2);
+    Object.keys(cols).forEach(function (k) {
+      var c = cols[k], y0 = H;
+      var x0 = (k / (N - 1)) * IW - bw / 2;
+      OUTCOME_ORDER.forEach(function (o) {
+        var n = c[o] || 0;
+        if (!n) return;
+        var h = (n / maxN) * H;
+        g.appendChild(s("rect", {
+          x: x0, y: y0 - h, width: bw, height: Math.max(1, h - 1),
+          fill: "var(" + (STATUS[o] || "--muted") + ")"
+        }));
+        y0 -= h;
+      });
+    });
+
+    var hl = s("line", { class: "hover-line", x1: 0, y1: 0, x2: 0, y2: H, opacity: 0 });
+    g.appendChild(hl);
+    var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
+    g.appendChild(hit);
+    hit.addEventListener("mousemove", function (ev) {
+      var r = svg.getBoundingClientRect();
+      var i = Math.round(((ev.clientX - r.left - PAD) / IW) * (N - 1));
+      var c = null, bi = -1, bd = 1e9;
       Object.keys(cols).forEach(function (k) {
-        var c = cols[k], y0 = H;
-        var x0 = (k / (N - 1)) * IW - bw / 2;
-        OUTCOME_ORDER.forEach(function (o) {
-          var n = c[o] || 0;
-          if (!n) return;
-          var h = (n / maxN) * H;
-          g.appendChild(s("rect", {
-            x: x0, y: y0 - h, width: bw, height: Math.max(1, h - 1),
-            fill: "var(" + (STATUS[o] || "--muted") + ")"
-          }));
-          y0 -= h;
-        });
+        var d = Math.abs(k - i);
+        if (d < bd) { bd = d; bi = +k; c = cols[k]; }
       });
-
-      var hl = s("line", { class: "hover-line", x1: 0, y1: 0, x2: 0, y2: H, opacity: 0 });
-      g.appendChild(hl);
-      var hit = s("rect", { x: 0, y: 0, width: IW, height: H, fill: "transparent" });
-      g.appendChild(hit);
-      hit.addEventListener("mousemove", function (ev) {
-        var r = svg.getBoundingClientRect();
-        var i = Math.round(((ev.clientX - r.left - PAD) / IW) * (N - 1));
-        var c = null, bi = -1, bd = 1e9;
-        Object.keys(cols).forEach(function (k) {
-          var d = Math.abs(k - i);
-          if (d < bd) { bd = d; bi = +k; c = cols[k]; }
-        });
-        if (!c || bd > 4) return;
-        var bx = (bi / (N - 1)) * IW;
-        hl.setAttribute("opacity", 1);
-        hl.setAttribute("x1", bx); hl.setAttribute("x2", bx);
-        var nodes = [el("div", { class: "t" }, c.n + (c.n === 1 ? " call" : " calls") + " in this slice")];
-        OUTCOME_ORDER.forEach(function (o) {
-          if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
-        });
-        if (c.slow) nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "")));
-        showTip(tools.tip, tools.box, bx + PAD, H + 12, nodes);
+      if (!c || bd > 4) return;
+      var bx = (bi / (N - 1)) * IW;
+      hl.setAttribute("opacity", 1);
+      hl.setAttribute("x1", bx); hl.setAttribute("x2", bx);
+      var nodes = [el("div", { class: "t" }, c.n + (c.n === 1 ? " call" : " calls") + " in this slice")];
+      OUTCOME_ORDER.forEach(function (o) {
+        if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
       });
-      hit.addEventListener("mouseleave", function () { hideTip(tools.tip); hl.setAttribute("opacity", 0); });
-    } else {
-      g.appendChild(s("line", { x1: 0, y1: H, x2: IW, y2: H, class: "axis" }));
-      annotate(g, IW, H, {});
-      marks.forEach(function (t) {
-        var x0 = t.x * IW;
-        var w = t.hasDur ? Math.max(2, (t.w || 0) * IW) : 2;
-        var token = STATUS[t.outcome] || "--muted";
-        var r = s("rect", {
-          x: x0, y: 4, width: w, height: H - 10, rx: 2, class: "tool",
-          fill: "var(" + token + ")",
-          stroke: "var(--surface-1)", "stroke-width": w > 4 ? 1 : 0
-        });
-        r.addEventListener("mouseenter", function () {
-          var nodes = [el("div", { class: "t" }, t.name)];
-          if (t.brief) nodes.push(el("div", { class: "m" }, t.brief));
-          nodes.push(tipRow("outcome", t.outcome, token));
-          nodes.push(tipRow("duration", t.hasDur ? t.dur : "unknown"));
-          if (t.bytes) nodes.push(tipRow("result", bytes(t.bytes)));
-          if (t.at) nodes.push(tipRow("at", t.at));
-          if (t.detail) nodes.push(el("div", { class: "m" }, t.detail));
-          if (!t.hasDur) nodes.push(el("div", { class: "m" }, "No result in the transcript, so no duration — not a fast call."));
-          showTip(tools.tip, tools.box, x0 + PAD, H + 12, nodes);
-        });
-        r.addEventListener("mouseleave", function () { hideTip(tools.tip); });
-        g.appendChild(r);
-      });
-    }
+      // The one call worth naming out of the slice, carrying what the
+      // per-call hover used to say about it. A slice whose calls all went
+      // unpaired has no longest call: an unknown duration is not a short one.
+      if (c.slow) {
+        nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "")));
+        if (c.slow.brief) nodes.push(el("div", { class: "m" }, c.slow.brief));
+        if (c.slow.bytes) nodes.push(tipRow("result", bytes(c.slow.bytes)));
+        if (c.slow.detail) nodes.push(el("div", { class: "m" }, c.slow.detail));
+      }
+      showTip(tools.tip, tools.box, bx + PAD, H + 12, nodes);
+    });
+    hit.addEventListener("mouseleave", function () { hideTip(tools.tip); hl.setAttribute("opacity", 0); });
 
     ticks(g, IW, H + 20);
     svg.appendChild(g);
@@ -1079,13 +1073,12 @@
   // lane of marks on the shared clock. A mark's width is how long the skill
   // ran, the same measure as the tool lane's, because that is what it is.
   function drawSkills() {
-    if (!skills) return;
     var W = skills.box.clientWidth, PAD = 46, ROW = 30, TOP = 4;
     skills.box.querySelectorAll("svg").forEach(function (n) { n.remove(); });
 
     var names = (D.skillUse || []).map(function (u) { return u.name; });
     if (!names.length) {
-      return emptyState(skills, "No skills invoked in this run.");
+      return emptyState(skills, "No skill invocations to place on the clock.");
     }
     clearEmptyState(skills);
 

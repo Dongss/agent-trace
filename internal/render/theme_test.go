@@ -276,6 +276,29 @@ func TestSectionsAreInOrder(t *testing.T) {
 	}
 }
 
+// Every session renders the same sections, so each block that can come up
+// empty has to say so in words. A block that vanishes with its data reads as a
+// rendering fault rather than as an answer, and two sessions cannot be
+// compared when one of them is missing a row of the page.
+func TestEmptyBlocksSaySo(t *testing.T) {
+	page, err := Page(sampleRun(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(page)
+	for _, w := range []string{
+		"No compactions in this run.",
+		"No tools were called in this run.",
+		"No tool calls to place on the clock.",
+		"No skills were invoked in this run.",
+		"No skill invocations to place on the clock.",
+	} {
+		if !strings.Contains(html, w) {
+			t.Errorf("no empty state saying %q", w)
+		}
+	}
+}
+
 // The build that produced a page is on it, and so is a way back to the project.
 func TestVersionAndRepoReachThePage(t *testing.T) {
 	v := build(sampleRun(), Options{Version: "v0.1.0"})

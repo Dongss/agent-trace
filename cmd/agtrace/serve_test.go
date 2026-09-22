@@ -188,21 +188,50 @@ func TestSortKeysLeaveMissingValuesEmpty(t *testing.T) {
 	}
 }
 
-// The order is part of the view, so the way back carries it beside the filter.
+// The "hide sessions with no tokens" box tests the tokens key for exactly
+// zero, so a session that spent nothing has to be distinguishable there from
+// one that was never scanned. A scanned session that spent nothing writes 0
+// and is hidden; an unscanned one writes nothing and stays, because absent is
+// not zero and the row shows an em dash rather than a figure.
+func TestSortKeysTellZeroFromUnscanned(t *testing.T) {
+	spentNothing := claudecode.Session{
+		Totals:  &claudecode.Totals{},
+		ModTime: time.Unix(1700000000, 0), Size: 42,
+	}
+	if got := strings.Split(sortKeys(spentNothing), "|")[0]; got != "0" {
+		t.Errorf("tokens = %q for a session that spent nothing, want 0", got)
+	}
+	unscanned := claudecode.Session{ModTime: time.Unix(1700000000, 0), Size: 42}
+	if got := strings.Split(sortKeys(unscanned), "|")[0]; got != "" {
+		t.Errorf("tokens = %q for an unscanned session, want empty", got)
+	}
+}
+
+// The order and the hidden rows are part of the view, so the way back carries
+// them beside the filter.
 func TestBackHrefCarriesFilterAndOrder(t *testing.T) {
 	for _, tc := range []struct {
-		q, sort, dir string
-		want         []string
+		from url.Values
+		want []string
 	}{
-		{"", "", "", []string{"agent=claude-code"}},
-		{"vme", "", "", []string{"agent=claude-code", "q=vme"}},
-		{"vme", "cost", "desc", []string{"agent=claude-code", "dir=desc", "q=vme", "sort=cost"}},
-		{"", "size", "asc", []string{"agent=claude-code", "dir=asc", "sort=size"}},
+		{url.Values{}, []string{"agent=claude-code"}},
+		{url.Values{"q": {"vme"}}, []string{"agent=claude-code", "q=vme"}},
+		{url.Values{"q": {"vme"}, "sort": {"cost"}, "dir": {"desc"}},
+			[]string{"agent=claude-code", "dir=desc", "q=vme", "sort=cost"}},
+		{url.Values{"sort": {"size"}, "dir": {"asc"}},
+			[]string{"agent=claude-code", "dir=asc", "sort=size"}},
+		// The checkbox is ticked by default, so only the other state is written
+		// down, and only that state has to come back.
+		{url.Values{"empty": {"1"}}, []string{"agent=claude-code", "empty=1"}},
+		// Anything else on the session page's own URL stays there: a back link
+		// is built from the listing's controls, not replayed from the address
+		// bar it happens to be on.
+		{url.Values{"agent": {"somebody-else"}, "from": {"x"}}, []string{"agent=claude-code"}},
 	} {
-		got := backHref("claude-code", tc.q, tc.sort, tc.dir)
+		got := backHref("claude-code", tc.from)
 		want := "/?" + strings.Join(tc.want, "&")
 		if got != want {
-			t.Errorf("backHref(%q, %q, %q) = %q, want %q", tc.q, tc.sort, tc.dir, got, want)
+			t.Errorf("backHref(%v) = %q, want %q", tc.from, got, want)
 		}
 	}
 }

@@ -150,7 +150,7 @@ func newMux(defaultAgent agent.Agent) *http.ServeMux {
 			// another window; a copy saved out of the browser gets neither, because
 			// there is no server behind it to answer.
 			Version:   version.String(),
-			Back:      backHref(a.ID, q.Get("q"), q.Get("sort"), q.Get("dir")),
+			Back:      backHref(a.ID, q),
 			BackLabel: a.Name + " sessions",
 			Ranges:    ranges,
 			Quick:     quick,
@@ -376,13 +376,16 @@ func shortDur(d time.Duration) string {
 }
 
 // backHref points a session page back at the list it came from, filter and
-// order included: the index puts both on every session link, so the way back
-// lands on the rows you were looking at, in the order you were reading them.
-func backHref(agentID, q, sort, dir string) string {
+// order included: the index puts all of it on every session link, so the way
+// back lands on the rows you were looking at, in the order you were reading
+// them. The listing's state is whatever it writes to the address bar, so the
+// keys are copied by name rather than spelled into a signature that has to
+// grow a parameter every time the listing grows a control.
+func backHref(agentID string, from url.Values) string {
 	v := url.Values{}
 	v.Set("agent", agentID)
-	for k, val := range map[string]string{"q": q, "sort": sort, "dir": dir} {
-		if val != "" {
+	for _, k := range []string{"q", "sort", "dir", "empty"} {
+		if val := from.Get(k); val != "" {
 			v.Set(k, val)
 		}
 	}
@@ -543,11 +546,18 @@ nav a:hover{border-color:var(--ink-2);color:var(--ink)}
 nav a.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:550}
 nav a.off{color:var(--muted);border-style:dashed}
 nav a.off.on{background:none;color:var(--ink);border-color:var(--ink-2);font-weight:550}
-.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 7px}
 .tools input{font:inherit;font-size:13px;color:var(--ink);background:var(--surface-1);border:1px solid var(--border);
  border-radius:8px;padding:7px 11px;min-width:min(360px,100%);outline:none}
 .tools input:focus{border-color:var(--accent)}
-.tools .count{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+/* On its own line under the controls: beside them it was one more thing
+   competing for the same row, and it moves while the others sit still. */
+.count{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
+ text-align:right;margin:0 0 11px}
+/* The search box's width and padding are its own; a checkbox inherits neither. */
+.tools label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);
+ user-select:none;cursor:pointer}
+.tools input[type=checkbox]{min-width:0;padding:0;margin:0;accent-color:var(--accent);cursor:pointer}
 tr[hidden]{display:none}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;background:var(--surface-1);border:1px solid var(--border);border-radius:10px}
@@ -620,8 +630,14 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
 {{else}}
 <div class="tools">
   <input type="search" id="q" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search sessions">
-  <span class="count" id="count"></span>
+  {{- /* On by default: a session that spent nothing is a transcript that was
+         opened and abandoned, and there are enough of them to push the ones
+         worth reading off the first screen. Hidden, not dropped by the
+         server, so unticking the box is instant and the count can say how
+         many were held back. */ -}}
+  <label title="A session whose transcript records no tokens spent. One that was never scanned shows an em dash instead of a figure and is not hidden."><input type="checkbox" id="empty" checked> Hide empty</label>
 </div>
+<div class="count" id="count"></div>
 <div class="scroll">
 <table id="sessions"><thead><tr>
   <th class="t-nt" title="Two fields, one column: the name is what the CLI calls the session — its agent-name entry — and the title is what the model called it. Often different values, and either can be missing.">Name / title</th>
@@ -663,11 +679,11 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
   addEventListener("resize", markClipped);
 
   var q = document.getElementById("q"), count = document.getElementById("count");
+  var hideEmpty = document.getElementById("empty");
   var tbody = document.querySelector("#sessions tbody");
   // Document order is the order the server sent: newest touched first. It is
   // the fallback for an unsorted view and the tie-break within a sorted one.
   var rows = Array.prototype.slice.call(document.querySelectorAll("#sessions tbody tr"));
-  var total = rows.length;
   // Each row's fields, kept apart: title, name, directory, id.
   var hay = rows.map(function (r) {
     return (r.getAttribute("data-s") || "").toLowerCase().split("|");
@@ -710,6 +726,10 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     });
   });
   var sortCol = "", sortDesc = true;
+  // Spent nothing, as against never scanned. A row with no totals shows an em
+  // dash and stays: absent is not zero, and hiding it would claim a session
+  // was idle on the strength of a figure nobody has.
+  var spentNothing = keys.map(function (k) { return k[0] === 0; });
 
   function reorder() {
     var col = SORTS.indexOf(sortCol);
@@ -778,7 +798,7 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     var query = q.value.trim().toLowerCase();
     var shown = 0;
     rows.forEach(function (r, i) {
-      var ok = !query || matches(query, hay[i]);
+      var ok = (!query || matches(query, hay[i])) && !(hideEmpty.checked && spentNothing[i]);
       r.hidden = !ok;
       if (ok) shown++;
       // Carry the query and the order into the session link, so its back
@@ -791,7 +811,10 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
         a.setAttribute("href", href.pathname + href.search);
       }
     });
-    count.textContent = query ? shown + " of " + total : total + " sessions";
+    // What is on screen, and only that. The number of rows held back is not
+    // a question the list is answering — the two controls that hold them back
+    // are both in view, and either one says what it is doing.
+    count.textContent = shown + (shown === 1 ? " session" : " sessions");
     // Keep the query and the order in the URL so the browser's back button,
     // and a reload, land on the same list. replaceState, so typing does not
     // pile up history.
@@ -804,6 +827,8 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
   // cannot drift into describing different views.
   function setState(params, query) {
     if (query) params.set("q", q.value.trim()); else params.delete("q");
+    // The box is ticked by default, so the parameter records the other state.
+    if (hideEmpty.checked) params.delete("empty"); else params.set("empty", "1");
     if (sortCol) {
       params.set("sort", sortCol);
       params.set("dir", sortDesc ? "desc" : "asc");
@@ -813,6 +838,7 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     }
   }
   q.addEventListener("input", apply);
+  hideEmpty.addEventListener("change", apply);
   document.addEventListener("keydown", function (e) {
     // "/" focuses the box from anywhere on the page, as in most list UIs.
     if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); }
@@ -820,6 +846,7 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
   });
   var at = new URL(location.href).searchParams;
   if (at.get("q")) q.value = at.get("q");
+  if (at.get("empty") === "1") hideEmpty.checked = false;
   if (SORTS.indexOf(at.get("sort")) >= 0) {
     sortCol = at.get("sort");
     sortDesc = at.get("dir") !== "asc";

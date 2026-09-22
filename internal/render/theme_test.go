@@ -141,16 +141,37 @@ func TestVersionRange(t *testing.T) {
 	}
 
 	run := sampleRun()
-	run.Versions = []string{"2.1.231", "2.1.236", "2.1.258", "2.1.274"}
+	run.Surfaces = []event.Surface{{Name: "cli",
+		Versions: []string{"2.1.231", "2.1.236", "2.1.258", "2.1.274"}}}
 	v := build(run, Options{})
-	if v.Meta.Versions != "2.1.231 → 2.1.274" {
-		t.Errorf("pill shows %q", v.Meta.Versions)
+	if len(v.Meta.Surfaces) != 1 {
+		t.Fatalf("surfaces = %v", v.Meta.Surfaces)
 	}
-	if !strings.Contains(v.Meta.VersionsAll, "2.1.258") {
-		t.Errorf("the full list is not available for the tooltip: %q", v.Meta.VersionsAll)
+	s := v.Meta.Surfaces[0]
+	if s.Name != "cli" || s.Versions != "2.1.231 → 2.1.274" || s.Count != 4 {
+		t.Errorf("meta line shows %q %q across %d", s.Name, s.Versions, s.Count)
 	}
-	if v.Meta.VersionCount != 4 {
-		t.Errorf("version count = %d", v.Meta.VersionCount)
+	if !strings.Contains(s.All, "2.1.258") {
+		t.Errorf("the full list is not available for the tooltip: %q", s.All)
+	}
+}
+
+// Each entrypoint keeps its own releases. An editor extension bundles its own
+// CLI, so a session resumed there can move to an older release than the
+// terminal was on; pooling the two into one range reports it backwards, and
+// the name is what explains the jump.
+func TestSurfacesAreNotPooled(t *testing.T) {
+	run := sampleRun()
+	run.Surfaces = []event.Surface{
+		{Name: "cli", Versions: []string{"2.1.270"}},
+		{Name: "claude-vscode", Versions: []string{"2.1.263"}},
+	}
+	v := build(run, Options{})
+	if len(v.Meta.Surfaces) != 2 {
+		t.Fatalf("surfaces = %v", v.Meta.Surfaces)
+	}
+	if v.Meta.Surfaces[0].Versions != "2.1.270" || v.Meta.Surfaces[1].Versions != "2.1.263" {
+		t.Errorf("surfaces = %v, want each release under the name that ran it", v.Meta.Surfaces)
 	}
 }
 
@@ -273,6 +294,47 @@ func TestSectionsAreInOrder(t *testing.T) {
 			t.Errorf("%s comes before the section that should precede it", w)
 		}
 		at = i
+	}
+}
+
+// Every session renders the same sections, so each block that can come up
+// empty has to say so in words. A block that vanishes with its data reads as a
+// rendering fault rather than as an answer, and two sessions cannot be
+// compared when one of them is missing a row of the page.
+func TestEmptyBlocksSaySo(t *testing.T) {
+	page, err := Page(sampleRun(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(page)
+	for _, w := range []string{
+		"No compactions in this run.",
+		"No tools were called in this run.",
+		"No tool calls to place on the clock.",
+		"No skills were invoked in this run.",
+		"No skill invocations to place on the clock.",
+	} {
+		if !strings.Contains(html, w) {
+			t.Errorf("no empty state saying %q", w)
+		}
+	}
+}
+
+// Which CLI wrote the transcript is not on the page. It is one word and,
+// while Claude Code is the only reader, the same word every time, so it
+// distinguished nothing wherever it was put — the header line, then the
+// footer. Whatever brings a second reader should put it back somewhere it
+// tells two things apart, which is a different decision from this one.
+func TestTheReaderIsNotNamedOnThePage(t *testing.T) {
+	page, err := Page(sampleRun(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(page), "m.source") {
+		t.Error("the page still reads the CLI name")
+	}
+	if strings.Contains(string(page), `"source"`) {
+		t.Error("the payload still carries the CLI name")
 	}
 }
 

@@ -7,6 +7,9 @@
 
 A local dashboard for agent CLI sessions.
 
+**Nothing leaves your machine.** Transcripts are read from disk, the pages are
+served locally.
+
 ## Supported agents
 
 - [x] Claude Code

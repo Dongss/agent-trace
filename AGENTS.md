@@ -60,16 +60,15 @@ Code that ignores one produces a timeline that looks right and is wrong.
   sorts by (time, seq).
 
 - **A compaction boundary may carry no timestamp**, and it is the most
-  important entry in the file. Every one of the 17 surveyed did carry one
-  (2.1.228 through 2.1.276), so `PlaceBySeq` is a fallback rather than the
-  usual path — but it is the fallback that matters, because dropping the
-  boundary for want of a timestamp would lose the run's largest event.
-  `Compact.HasTime` says which case a given one is.
+  important entry in the file. Every one of the 17 surveyed did carry one, so
+  `PlaceBySeq` is a fallback rather than the usual path — but it is the
+  fallback that matters, because dropping the boundary for want of a timestamp
+  would lose the run's largest event. `Compact.HasTime` says which case a given
+  one is.
 
-- **Nine entry types carry no timestamp at all** — `cost-state`,
-  `file-history-snapshot`, `mode`, `permission-mode`, `ai-title`,
-  `custom-title`, `agent-name`, `last-prompt`, `atis-latch`. File order is the
-  only total order that always exists, which is what `Step.Seq` records.
+- **Nine entry types carry no timestamp at all**, `cost-state` among them. File
+  order is the only total order that always exists, which is what `Step.Seq`
+  records.
 
 - **A tool call is a pair, and an unpaired one is information.** `tool_use`
   pairs with a later `tool_result` by id. A call with no result did not take
@@ -97,18 +96,25 @@ Code that ignores one produces a timeline that looks right and is wrong.
   name reports "Skill ×20" and never says which.
 
 - **`ai-title` is the title; `custom-title` is not a rename.** `customTitle` is
-  byte-identical to `agentName` on every surveyed session where both appear,
-  and the two appear and vanish together, so it reads as the agent's label
-  rather than something somebody typed. It is a fallback, ranked second. Don't
-  claim it is a user rename without a transcript that separates the two.
-  `Run.Title` is `ai-title` alone, with no fallback — a field that falls back
-  shows the same value twice wherever both are displayed. 29 of 95 sessions
-  have no title, and those stay blank.
+  byte-identical to `agentName` wherever both appear, and the two appear and
+  vanish together, so it reads as the agent's label rather than something
+  somebody typed. Don't claim it is a user rename without a transcript that
+  separates the two. `Run.Title` is `ai-title` alone, with no fallback — a
+  field that falls back shows the same value twice wherever both are displayed.
+
+- **`entrypoint` says what drove the session, and it can change mid-file.**
+  `cli`, `sdk-cli`, `claude-vscode` on the survey machine; the set is open, so
+  the name is carried through unmapped — a guess at a surface this build has
+  never seen would read as fact. Versions are grouped per entrypoint in
+  `event.Surface`, not pooled, because an editor extension bundles its own CLI:
+  one surveyed session went `cli` 2.1.270 → `claude-vscode` 2.1.263, which a
+  single range reports as the run going backwards. `Run.Versions` stays the
+  flat union beside it.
 
 - **Sidechains are modelled but unverified.** `Step.Sidechain` and `AgentName`
   are parsed, but no surveyed transcript contained a subagent (zero
-  `isSidechain` and zero `Task` calls across 95), so the nesting is untested.
-  `agentName` there is the session's own agent, not a subagent's.
+  `isSidechain` and zero `Task` calls), so the nesting is untested. `agentName`
+  there is the session's own agent, not a subagent's.
 
 - **Transcript shapes drift with releases**, and a real recording cannot be
   committed here — it is the user's prompts, file contents and shell history.
@@ -134,10 +140,11 @@ Code that ignores one produces a timeline that looks right and is wrong.
   averaged composition is a request nobody made.
 
 - **Tokens are recomputed; cost never is.** A `cost-state` snapshot exists in
-  only 24 of 95 sessions, so a listing taking token counts from there would
-  leave three quarters of its rows empty — hence `Scan`. Cost needs a per-model
-  price table that is not in the transcript and would go stale here, so it is
-  shown only where the transcript states it.
+  roughly a third of sessions — none before 2.1.258, none from `sdk-cli` at any
+  release — so a listing taking token counts from there would leave most of its
+  rows empty, hence `Scan`. Cost needs a per-model price table that is not in
+  the transcript and would go stale here, so it is shown only where the
+  transcript states it.
 
 - **Stated and recomputed figures are never reconciled by editing one.** The
   snapshot names models the messages never mention and spells the main one
@@ -154,7 +161,8 @@ Code that ignores one produces a timeline that looks right and is wrong.
 - **Absent is not zero.** Claude Code never states the model's context window
   size, so "percent of context used" cannot be computed and must not be
   invented from a constant. Where a reader has no value the model carries a nil
-  pointer or a `Has*` flag and the renderer leaves a gap.
+  pointer or a `Has*` flag and the renderer leaves a gap. The same rule sorts
+  and filters the listing: a missing figure is not a zero.
 
 - **`Scan` must agree with the full parser, and a test says so.** It is a
   second implementation of the same dedup, which is how two answers to one
@@ -178,16 +186,9 @@ Code that ignores one produces a timeline that looks right and is wrong.
   midnight to midnight, so selecting one cannot pull in a neighbour through a
   rounding edge.
 
-- **A preset that would select nothing is not offered.** Today, Yesterday and
-  Past week are relative to now, not to the run, so most sessions qualify for
-  none. `buildQuick` asks `ActiveDays` and leaves out the empty ones: a control
-  that lands on an empty timeline is worse than no control.
-
 - **Everything converts to the reader's zone.** The transcript stores UTC and
   file mtimes are local; showing one of each on the same screen is a real bug
-  the listing invites, with Started and Last touched in adjacent columns. The
-  page does not name the zone anywhere — a known gap, one line beside the range
-  controls if it is wanted back.
+  the listing invites, with Started and Last touched in adjacent columns.
 
 ## The page
 
@@ -200,21 +201,17 @@ Code that ignores one produces a timeline that looks right and is wrong.
 
 - **Render nothing that fills nothing.** An area chart between adjacent columns
   draws an empty path when a column stands alone — an early version silently
-  dropped every isolated response that way. Isolated samples are bars. Where a
-  form stops working at a density, switch forms and say so: past ~250 calls the
-  tool lane becomes counts per slice. Where layout depends on how text renders,
-  measure it: axis labels are thinned by `getBBox()` after the SVG is in the
-  document, because a fixed gap guessed the font width wrong in both
-  directions.
+  dropped every isolated response that way. Isolated samples are bars. Where
+  layout depends on how text renders, measure it: axis labels are thinned by
+  `getBBox()` after the SVG is in the document, because a fixed gap guessed the
+  font width wrong in both directions.
 
 - **Three categorical colours, and status colours are reserved.** The palette's
   first three slots clear the colourblind and normal-vision gates across all
   pairs in both modes; a fourth cannot, in any ordering. A single-series chart
   gets the ink token rather than spending a slot, and tool outcomes use the
   status palette with labels beside them, never colour alone. The token stacks
-  need a fourth band and use that ink token: adding `--s-out` leaves the worst
-  adjacent pair where it was (green↔orange, ΔE 9.2 deutan light, 9.4 dark) and
-  the grey is the most separated of the four. Run the validator rather than
+  need a fourth band and use that ink token. Run the validator rather than
   reasoning about it, and re-run it for dark. One WARN stands: `--s-in` is
   2.74:1 on the light surface, below the 3:1 floor, which obliges visible
   labels — the legend and the tooltip carry it.
@@ -225,23 +222,16 @@ Code that ignores one produces a timeline that looks right and is wrong.
   hidden: colour follows the entity, never its rank on screen. Each chart has
   one definition of its series, shared by legend, marks and tooltip.
 
-- **Each subject gets a pair: what it reached for, then when.** Tokens, tools
-  and skills each have a total or a ranked list followed by a lane on the same
-  clock, and `TestSectionsAreInOrder` pins the sequence. Every tool is listed,
-  not a top few — the single call to something unexpected is usually the one
-  worth seeing. A list with nothing in it is left out entirely.
+- **Every session renders the same sections, in the same order, in one form
+  each.** A block that disappears with its data reads as a rendering fault
+  rather than as an answer, so an empty list, table or lane renders and says so
+  in words. A chart that changes shape between sessions cannot be compared
+  across them, which is why the tool lane is counts per slice at every density.
 
-- **A control only appears where it leads somewhere.** The back link is set by
-  the server and left empty when there is none. The same goes for every control
-  that needs a server to answer: `render.Options` carries it, the page checks
-  it, nothing is hard-coded to assume one is there.
-
-- **The theme is the reader's, and there is one copy of it.** `theme.css` and
-  `theme.js` are embedded once and served to both pages. Applied in `<head>`
-  before first paint so there is no flash, mirrored across tabs by the
-  `storage` event, cycling system → light → dark because a two-state toggle
-  cannot return to the OS setting. Every storage access is wrapped: it throws
-  in a private window and the page still has to render.
+- **Storage can throw.** Every access to `localStorage` is wrapped: it throws
+  in a private window and the page still has to render. The theme cycles
+  system → light → dark, because a two-state toggle cannot return to the OS
+  setting.
 
 - **The header chrome is one design in two files, and nothing enforces it.**
   The listing's lives in `serve.go`, the session page's in `page.html`. The
@@ -253,25 +243,17 @@ Code that ignores one produces a timeline that looks right and is wrong.
 - **A sortable column sorts the value, not the cell.** `1.4B`, `$771.71`,
   `117.3M` are rendered for reading; ordering that text puts 1.4B below 336k.
   Rows carry the raw numbers in `data-n` beside the search fields in `data-s`.
-  A missing value sorts last in *both* directions — 71 of 95 sessions state no
+  A missing value sorts last in *both* directions — most sessions state no
   cost, so an em dash read as zero buries every row that has one. Ties keep the
-  server's order. A header cycles through three states, not two: two cannot get
-  back to the order the server sent.
+  server's order.
 
 - **The filter and the order are one view, and it survives the round trip.**
   Matching is subsequence-in-order per word, the way a file finder works, so
-  `srvhub` finds `service-hub`; a substring always counts. `?q=`, `?sort=` and
-  `?dir=` go on the address bar and on every session link through one writer,
-  and the session page's back link is built from them — back means back to the
-  rows you were looking at, in the order you were reading them.
-
-- **Only a clipped cell reveals itself, and the tooltip is the browser's.**
-  Titling every cell puts one on rows that were already readable, so only what
-  `scrollWidth > clientWidth` says was cut off gets a `title`. The measured
-  element is the one that clips: a `<td>` holding two block children never
-  overflows, so the two lines inside it are measured instead. A styled box of
-  our own showed two tooltips at once on the cwd cell, which carries a `title`
-  from the template regardless.
+  `srvhub` finds `service-hub`; a substring always counts. `?q=`, `?sort=`,
+  `?dir=` and `?empty=` go on the address bar and on every session link through
+  one writer, and the session page's back link is built from them by name
+  rather than from a parameter per control — back means back to the rows you
+  were looking at, in the order you were reading them.
 
 - **Only agents with a reader are listed.** `internal/agent.List` filters to
   entries with both a `discover` and a `load`. `Status()` separates "no reader"
@@ -285,18 +267,10 @@ Code that ignores one produces a timeline that looks right and is wrong.
   per-session transcript identified; Qwen Code under `~/.qwen` was not
   surveyed.
 
-- **"Agent" names the CLI, and nothing else.** A transcript's own `agent-name`
-  is what the CLI calls that session, a different thing; it reads "name:".
-
 - **Versions sort numerically per component.** A string sort puts 2.1.98 after
-  2.1.231, and the "2.1.231 → 2.1.274 (7 releases)" range comes out backwards.
+  2.1.231, and a "2.1.231 → 2.1.274" range comes out backwards.
 
 ## Shipping
-
-- **Print what to open, not what was bound.** A wildcard bind reports
-  `[::]:7391`, which nobody can type. Sharing is the only reason to pass one,
-  so the announcement is localhost plus every IPv4 the machine can be reached
-  at. A host that was named is repeated back as typed.
 
 - **The version is stamped, not hard-coded twice.** `internal/version` holds
   `Version`; a release overrides it with `-X …/internal/version.Version=<tag>`.
@@ -320,12 +294,11 @@ Code that ignores one produces a timeline that looks right and is wrong.
   `replace_windows.go` moves the old one aside and puts it back if the second
   rename fails.
 
-- **The coverage badge lives in a gist, and the job is never fatal.** It was an
-  orphan branch first, which needed no token and lasted until the first branch
-  cleanup swept it up as debris. The price of a gist is a PAT with `gist` scope
-  in `GIST_TOKEN`, because the built-in `GITHUB_TOKEN` cannot write one — and
-  because that secret can be missing, absent on a fork or rate-limited, the job
-  exits 0 on all of those. A stale badge must not turn main red.
+- **The coverage badge job is never fatal.** It writes a gist, which needs a
+  PAT with `gist` scope in `GIST_TOKEN` because the built-in `GITHUB_TOKEN`
+  cannot write one. That secret can be missing, absent on a fork or
+  rate-limited, so the job exits 0 on all of those: a stale badge must not turn
+  main red.
 
 ## Tests
 
@@ -338,8 +311,7 @@ Code that ignores one produces a timeline that looks right and is wrong.
 
 - **The handlers are tested without a socket.** `newMux` exists apart from
   `serve` for that: it takes an agent whose `Root` a test points at a
-  directory of its own making, so the routes behave the same on a laptop full
-  of transcripts and on a runner with none.
+  directory of its own making.
 
 ## Conventions
 

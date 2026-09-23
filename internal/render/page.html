@@ -357,10 +357,14 @@
     if (v > 0 && v < 0.1) return "<0.1%";
     return (v >= 10 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, "")) + "%";
   }
-  if (D.modelsUsed && D.modelsUsed.length) {
+  // Drawn whether or not the run named a model, like the tiles under it: a
+  // strip that vanishes reads as a rendering gap rather than as an answer.
+  var MODELS = D.modelsUsed || [];
+  {
     var mw = el("div", { class: "models" });
-    mw.appendChild(el("span", { class: "lbl" }, D.modelsUsed.length === 1 ? "model" : "models"));
-    D.modelsUsed.forEach(function (mu) {
+    mw.appendChild(el("span", { class: "lbl" }, MODELS.length === 1 ? "model" : "models"));
+    if (!MODELS.length) mw.appendChild(el("span", { class: "also" }, "none recorded"));
+    MODELS.forEach(function (mu) {
       var card = el("div", {
         class: "model",
         title: mu.name + "\n" + num(mu.out) + " output tokens" +

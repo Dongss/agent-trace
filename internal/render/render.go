@@ -418,7 +418,9 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 		case run.Stated.UnknownModelCost:
 			cost.Note = "the CLI calls this figure incomplete"
 		case run.Truncated:
-			cost.Note = "a periodic snapshot; lags in a live session"
+			// The snapshot is written when a sitting ends, so in a session
+			// still being written the figure stops at the last exit.
+			cost.Note = "as of the last exit, not this sitting"
 		default:
 			cost.Note = "the whole session"
 		}

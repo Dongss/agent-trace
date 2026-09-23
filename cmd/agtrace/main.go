@@ -1,7 +1,7 @@
 // Command agtrace turns an agent CLI's own session transcripts into a visual
 // timeline of tool calls, context changes and token spend, and serves that
-// timeline in a browser. Running it is the whole interface: there are no
-// subcommands, only the address to listen on.
+// timeline in a browser. Running it is the whole interface: an address to
+// listen on, and three words that serve nothing — help, version, update.
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Dongss/agent-trace/internal/agent"
@@ -29,25 +30,37 @@ A local dashboard for agent CLI sessions
 
 usage:
   agtrace [flags]
-  agtrace update
+  agtrace <command>
 
 flags:
   -h, --help          help for agtrace
-      --host string   interface to listen on (default "127.0.0.1", 0.0.0.0 to share)
+      --host string   interface to listen on (default "127.0.0.1")
   -p, --port int      port to listen on (default 7391)
   -v, --version       version for agtrace
 
 commands:
-  update              replace this binary with the latest release
+  help                help for agtrace
+  update              update to the latest release
+  version             version for agtrace
 
 The page lists the sessions found on this machine; open one for its timeline.
 `
 }
 
+// commands are the words agtrace takes, in the order the help lists them.
+// Parsing reads this; the help spells them out again because the alignment is
+// part of the text. A test holds the two together — a command that works and
+// is not in the help, or a line in the help that is refused, is the pair that
+// drifts.
+var commands = []string{"help", "update", "version"}
+
 func main() {
 	fs := flag.NewFlagSet("agtrace", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.Usage = func() { fmt.Fprint(os.Stderr, usage()) }
+	// Silent, and the help is printed after Parse instead: the flag package
+	// calls Usage both for -h and beside a bad flag, and the two want
+	// different streams.
+	fs.Usage = func() {}
 	var (
 		host        string
 		port        int
@@ -59,34 +72,53 @@ func main() {
 	fs.BoolVar(&showVersion, "version", false, "print the version and exit")
 	fs.BoolVar(&showVersion, "v", false, "print the version and exit")
 	// -h and --help are not registered: the flag package handles them itself
-	// when nothing else claims the name, printing fs.Usage and returning
-	// ErrHelp. Registering them would take that over and print it twice.
+	// when nothing else claims the name and return ErrHelp.
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			fmt.Print(usage())
 			return
 		}
+		// The flag package has already named the bad flag on stderr.
+		fmt.Fprint(os.Stderr, usage())
 		os.Exit(2)
 	}
 	if showVersion {
 		fmt.Println("agtrace", version.String())
 		return
 	}
-	// `update` is the one word agtrace takes, and it is maintenance rather
-	// than a view of anything: serving the timeline stays the whole interface.
-	// Anything else is refused rather than swallowed, so somebody who typed a
-	// command this program never had does not get a listing instead.
+	// The three words agtrace takes. None of them serves anything: help and
+	// version describe the binary, update replaces it, and showing the
+	// timeline stays the whole interface. `help` and `version` are here as
+	// well as being flags because both spellings are the first thing somebody
+	// tries. Anything else is refused rather than swallowed, so somebody who
+	// typed a command this program never had does not get a listing instead.
 	if fs.NArg() > 0 {
-		if fs.Arg(0) != "update" {
-			fmt.Fprintf(os.Stderr, "agtrace: unexpected argument %q\n\n%s", fs.Arg(0), usage())
+		cmd := fs.Arg(0)
+		if !slices.Contains(commands, cmd) {
+			fmt.Fprintf(os.Stderr, "agtrace: unexpected argument %q\n\n%s", cmd, usage())
 			os.Exit(2)
 		}
 		if fs.NArg() > 1 {
-			fmt.Fprintf(os.Stderr, "agtrace: update takes no arguments, got %q\n\n%s", fs.Arg(1), usage())
+			fmt.Fprintf(os.Stderr, "agtrace: %s takes no arguments, got %q\n\n%s", cmd, fs.Arg(1), usage())
 			os.Exit(2)
 		}
-		if err := update(os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "agtrace:", err)
-			os.Exit(1)
+		switch cmd {
+		case "help":
+			// Asked for, so it goes to stdout where it can be piped or paged,
+			// the same as -h. The same text printed beside an error is a
+			// diagnostic and stays on stderr.
+			fmt.Print(usage())
+		case "version":
+			fmt.Println("agtrace", version.String())
+		case "update":
+			if err := update(os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "agtrace:", err)
+				os.Exit(1)
+			}
+		default:
+			// The list above accepted a word this switch cannot run.
+			fmt.Fprintf(os.Stderr, "agtrace: %s is not implemented\n", cmd)
+			os.Exit(2)
 		}
 		return
 	}

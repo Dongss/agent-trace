@@ -4,8 +4,9 @@
 every token spent, every tool call, every skill invoked. It reads transcripts
 that already exist on the machine — nothing is instrumented and no agent is
 modified — normalises them into one event model, and serves that model as a
-self-contained HTML page. Running `agtrace` is the whole interface: `--host`,
-`--port`, `--version`, `--help`, and `update`.
+self-contained HTML page. Running `agtrace` is the whole interface: `--host`
+and `--port`, plus three words that serve nothing — `help`, `version`,
+`update` — each also spelled as a flag.
 
 ```sh
 go test ./...          # must pass with no agent CLI and no account present

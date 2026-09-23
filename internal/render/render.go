@@ -388,26 +388,46 @@ func build(run *event.Run, opt Options) view {
 func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills []toolUse) []stat {
 	out := []stat{}
 
+	// Every tile is drawn, whatever the run had. A tile that appears only
+	// sometimes makes its absence read as a rendering gap rather than as an
+	// answer, and two sessions cannot be compared when one of them is short a
+	// figure. Missing and zero stay apart: a value nobody recorded is an em
+	// dash, a value that is nothing is 0.
+
 	// Active time leads: how long the run actually worked is the first thing
-	// to know about it, and the cost beside it reads as the price of that.
+	// to know about it, and the cost beside it reads as the price of that. A
+	// run with no timestamped entry has no span to measure, which is not the
+	// same as one that worked for no time.
+	active := stat{"Active time", "—",
+		fmt.Sprintf("%d responses, %d prompts", t.Responses, t.Prompts)}
 	if clock.Span() > 0 {
-		out = append(out, stat{"Active time", dur(clock.Active()),
-			fmt.Sprintf("%d responses, %d prompts", t.Responses, t.Prompts)})
+		active.Value = dur(clock.Active())
 	}
-	if run.Stated != nil {
-		// The scope of the figure, which is the thing about it a reader can
-		// act on: it covers the session and every model in it, including ones
-		// no message here mentions, and that is why a windowed view has no
-		// cost tile at all. The two below replace it where the figure itself
-		// needs a warning.
-		note := "the whole session"
-		if run.Stated.UnknownModelCost {
-			note = "the CLI calls this figure incomplete"
-		} else if run.Truncated {
-			note = "a periodic snapshot; lags in a live session"
+	out = append(out, active)
+
+	// The note carries the scope of the figure, which is the thing about it a
+	// reader can act on: it covers the session and every model in it,
+	// including ones no message here mentions. A windowed view therefore has
+	// no figure to show, and says that rather than looking like a transcript
+	// that stated none.
+	cost := stat{"Cost", "—", "the transcript states none"}
+	switch {
+	case run.Stated != nil:
+		cost.Value = fmt.Sprintf("$%.2f", run.Stated.CostUSD)
+		switch {
+		case run.Stated.UnknownModelCost:
+			cost.Note = "the CLI calls this figure incomplete"
+		case run.Truncated:
+			// The snapshot is written when a sitting ends, so in a session
+			// still being written the figure stops at the last exit.
+			cost.Note = "as of the last exit, not this sitting"
+		default:
+			cost.Note = "the whole session"
 		}
-		out = append(out, stat{"Cost", fmt.Sprintf("$%.2f", run.Stated.CostUSD), note})
+	case run.Windowed:
+		cost.Note = "stated for the session, not for a window"
 	}
+	out = append(out, cost)
 	out = append(out,
 		stat{"Total tokens", compact(t.All.Input + t.All.CacheRead + t.All.CacheWrite + t.All.Output),
 			"input, cache and output"},
@@ -418,25 +438,21 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	)
 	// Compactions closes the run of context figures above rather than opening
 	// the run of activity below: what it reports is the context being cut, not
-	// something the agent did. Always shown, zero included — "no compactions"
-	// is a fact about a run worth reading, and a tile that appears only
-	// sometimes makes its absence look like a rendering gap rather than an
-	// answer.
+	// something the agent did.
 	compactions := stat{"Compactions", fmt.Sprintf("%d", len(run.Compacts)), "the context was never cut"}
 	if len(run.Compacts) > 0 {
 		compactions.Note = compact(t.DroppedByCompaction) + " tokens dropped"
 	}
 	out = append(out, compactions, stat{"Tool calls", compact(t.ToolCalls), toolNote(t)})
-	// Only where a skill was used. Most runs use none, and "Skills 0" on every
-	// one of them is a tile that never says anything.
-	if n := len(skills); n > 0 {
-		calls := 0
-		for _, sk := range skills {
-			calls += sk.N
-		}
-		out = append(out, stat{"Skills", compact(calls),
-			fmt.Sprintf("across %d %s", n, plural(n, "skill"))})
+	calls := 0
+	for _, sk := range skills {
+		calls += sk.N
 	}
+	used := stat{"Skills", compact(calls), "no skills were invoked"}
+	if n := len(skills); n > 0 {
+		used.Note = fmt.Sprintf("across %d %s", n, plural(n, "skill"))
+	}
+	out = append(out, used)
 	return out
 }
 

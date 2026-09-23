@@ -4,8 +4,9 @@
 every token spent, every tool call, every skill invoked. It reads transcripts
 that already exist on the machine — nothing is instrumented and no agent is
 modified — normalises them into one event model, and serves that model as a
-self-contained HTML page. Running `agtrace` is the whole interface: `--host`,
-`--port`, `--version`, `--help`, and `update`.
+self-contained HTML page. Running `agtrace` is the whole interface: `--host`
+and `--port`, plus three words that serve nothing — `help`, `version`,
+`update` — each also spelled as a flag.
 
 ```sh
 go test ./...          # must pass with no agent CLI and no account present
@@ -140,19 +141,27 @@ Code that ignores one produces a timeline that looks right and is wrong.
   averaged composition is a request nobody made.
 
 - **Tokens are recomputed; cost never is.** A `cost-state` snapshot exists in
-  roughly a third of sessions — none before 2.1.258, none from `sdk-cli` at any
-  release — so a listing taking token counts from there would leave most of its
-  rows empty, hence `Scan`. Cost needs a per-model price table that is not in
-  the transcript and would go stale here, so it is shown only where the
-  transcript states it.
+  roughly a third of sessions, so a listing taking token counts from there
+  would leave most of its rows empty, hence `Scan`. Cost needs a per-model
+  price table that is not in the transcript and would go stale here, so it is
+  shown only where the transcript states it.
+
+- **The cost snapshot is written when a sitting ends, not as the run goes.** In
+  a 7,900-line session every one of the five snapshots sits exactly at a gap
+  between sittings, and a session opened and quit without a single response
+  still gets one, stating $0. So a session with no snapshot is usually one
+  still open or killed rather than one too old to have the field — though that
+  is a cause too: the entry does not exist before 2.1.258, and `sdk-cli` never
+  writes one at any release. The consequence for the page is that the stated
+  figure covers everything up to the last exit and nothing since.
 
 - **Stated and recomputed figures are never reconciled by editing one.** The
   snapshot names models the messages never mention and spells the main one
   differently (`claude-opus-5[1m]` against `claude-opus-5`), so summing
   messages cannot reproduce it. A trailing bracketed marker is stripped only to
   decide whether a stated model is one the transcript already showed; nothing
-  is merged. The snapshot is also periodic and lags — mid-run it showed $0.68
-  and 2,890 output tokens against 61,710 recomputed.
+  is merged. The snapshot also lags by a whole sitting — mid-sitting it showed
+  $0.68 and 2,890 output tokens against 61,710 recomputed.
 
 - **Share is of output, not of the total.** Ranking models by the grand total
   puts whichever re-read the most context first and makes every model in a long

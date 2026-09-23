@@ -1,6 +1,7 @@
 package render
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,7 +89,10 @@ func TestRangeControlsOnlyWhenOffered(t *testing.T) {
 	}
 }
 
-// A windowed run says what it is a window into, and drops what it cannot claim.
+// A windowed run says what it is a window into, and does not claim a cost for
+// it: the transcript states one for the whole session. The tile stays and says
+// so, because an absent tile reads as a rendering gap and a figure for the
+// session under a view of ten minutes of it would be a lie.
 func TestWindowedPageSaysSoAndDropsStated(t *testing.T) {
 	run := sampleRun()
 	run.Windowed = true
@@ -102,9 +106,48 @@ func TestWindowedPageSaysSoAndDropsStated(t *testing.T) {
 	if !v.Meta.Windowed {
 		t.Error("meta does not say the view is windowed")
 	}
-	for _, s := range v.Stats {
+	var cost *stat
+	for i, s := range v.Stats {
 		if s.Label == "Cost" {
-			t.Error("a cost tile survived into a windowed view")
+			cost = &v.Stats[i]
+		}
+	}
+	if cost == nil {
+		t.Fatal("no cost tile in a windowed view")
+	}
+	if cost.Value != "—" {
+		t.Errorf("cost = %q in a windowed view, want no figure", cost.Value)
+	}
+	if !strings.Contains(cost.Note, "not for a window") {
+		t.Errorf("cost note = %q, want it to say why", cost.Note)
+	}
+}
+
+// Every tile is drawn whatever the run had, so two sessions can be read side
+// by side. Missing and zero stay apart: a run with no timestamp and no cost
+// shows an em dash, and one that simply invoked no skills shows 0.
+func TestEveryTileIsDrawn(t *testing.T) {
+	v := build(&event.Run{}, Options{})
+	var labels []string
+	byLabel := map[string]stat{}
+	for _, s := range v.Stats {
+		labels = append(labels, s.Label)
+		byLabel[s.Label] = s
+	}
+	want := []string{"Active time", "Cost", "Total tokens", "Input tokens",
+		"Output tokens", "Cache read", "Cache write", "Compactions",
+		"Tool calls", "Skills"}
+	if !slices.Equal(labels, want) {
+		t.Fatalf("tiles = %v, want %v", labels, want)
+	}
+	for _, l := range []string{"Active time", "Cost"} {
+		if byLabel[l].Value != "—" {
+			t.Errorf("%s = %q with nothing recorded, want an em dash", l, byLabel[l].Value)
+		}
+	}
+	for _, l := range []string{"Total tokens", "Compactions", "Tool calls", "Skills"} {
+		if byLabel[l].Value != "0" {
+			t.Errorf("%s = %q with none of them, want 0", l, byLabel[l].Value)
 		}
 	}
 }

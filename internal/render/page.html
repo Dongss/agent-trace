@@ -459,15 +459,31 @@
     return c;
   }
 
-  function showTip(tip, box, x, y, nodes) {
+  // Every chart's tooltip sits beside what it describes, on whichever side has
+  // more room, level with the top of the chart. Centred over the crosshair it
+  // hid the columns either side of the one being read, which are what that one
+  // gets compared with; outside the chart it hid the next card's chart
+  // instead. Beside it, what it covers is the far side of the plot. span is the
+  // width of the mark at x, zero for a crosshair, so a long skill mark is
+  // flanked rather than overlapped.
+  var TIP_GAP = 12;
+  function showTip(tip, box, x, nodes, span) {
+    span = span || 0;
     tip.textContent = "";
     nodes.forEach(function (n) { tip.appendChild(n); });
     tip.classList.add("on");
     var w = box.clientWidth;
-    var tw = tip.offsetWidth || 220;
-    var left = Math.min(Math.max(4, x - tw / 2), Math.max(4, w - tw - 4));
+    var tw = tip.offsetWidth || 220, th = tip.offsetHeight;
+    var toRight = w - (x + span) >= x;
+    var left = toRight ? x + span + TIP_GAP : x - TIP_GAP - tw;
+    left = Math.min(Math.max(4, left), Math.max(4, w - tw - 4));
+    // Level with the chart, but pulled back inside the window when the chart
+    // is part-scrolled out of it; its first line is the one kept in view.
+    var r = box.getBoundingClientRect();
+    var top = Math.min(0, window.innerHeight - 4 - th - r.top);
+    top = Math.max(top, 4 - r.top);
     tip.style.left = left + "px";
-    tip.style.top = Math.max(0, y) + "px";
+    tip.style.top = top + "px";
   }
   function hideTip(tip) { tip.classList.remove("on"); }
   function tipRow(label, value, token) {
@@ -518,7 +534,7 @@
         if (c.dropped) nodes.push(tipRow("dropped by now", num(c.dropped)));
         nodes.push(tipRow("trigger", c.trigger || "unrecorded"));
         if (c.dur) nodes.push(tipRow("took", c.dur));
-        showTip(card.tip, card.box, x + 46, 8, nodes);
+        showTip(card.tip, card.box, x + 46, nodes);
       });
       hit.addEventListener("mouseleave", function () { hideTip(card.tip); });
       g.appendChild(hit);
@@ -874,7 +890,7 @@
       layers.forEach(function (L) { rows.push(tipRow(L.label, num(p[L.key]), L.token)); });
       rows.push(el("div", { class: "m" }, pct(sofar / max) +
         (only ? " of what this series spent in all" : " of the window's total")));
-      showTip(spend.tip, spend.box, x(b.x) + PAD, 8, rows);
+      showTip(spend.tip, spend.box, x(b.x) + PAD, rows);
     });
     hit.addEventListener("mouseleave", function () { hideTip(spend.tip); hl.setAttribute("opacity", 0); });
   }
@@ -975,7 +991,7 @@
       if ((!only || only === "out") && b.think) rows.push(tipRow("of it thinking", num(b.think)));
       rows.push(el("div", { class: "m" },
         "summed over " + b.n + (b.n === 1 ? " response" : " responses") + " in this slice"));
-      showTip(flow.tip, flow.box, bx + PAD, 4, rows);
+      showTip(flow.tip, flow.box, bx + PAD, rows);
     });
     hit.addEventListener("mouseleave", function () { hideTip(flow.tip); hl.setAttribute("opacity", 0); });
   }
@@ -1091,7 +1107,7 @@
         if (c.slow.bytes) nodes.push(tipRow("result", bytes(c.slow.bytes)));
         if (c.slow.detail) nodes.push(el("div", { class: "m" }, c.slow.detail));
       }
-      showTip(tools.tip, tools.box, bx + PAD, H + 12, nodes);
+      showTip(tools.tip, tools.box, bx + PAD, nodes);
     });
     hit.addEventListener("mouseleave", function () { hideTip(tools.tip); hl.setAttribute("opacity", 0); });
 
@@ -1142,7 +1158,7 @@
           nodes.push(tipRow("outcome", t.outcome, STATUS[t.outcome] || "--s-out"));
           nodes.push(tipRow("duration", t.hasDur ? t.dur : "unknown"));
           if (t.at) nodes.push(tipRow("at", t.at));
-          showTip(skills.tip, skills.box, x0 + PAD, H + 12, nodes);
+          showTip(skills.tip, skills.box, x0 + PAD, nodes, w);
         });
         r.addEventListener("mouseleave", function () { hideTip(skills.tip); });
         g.appendChild(r);

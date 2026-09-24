@@ -92,6 +92,23 @@ Code that ignores one produces a timeline that looks right and is wrong.
   complained about; only a malformed entry of a modelled type is worth a
   complaint.
 
+- **A user-role entry is not a prompt until it says so.** Claude Code writes
+  its own entries as `user`, most as a bare string exactly like a typed turn:
+  task notifications (1,063 on the survey machine, against 1,001 prompts people
+  typed), slash commands with either tag first and what they printed, `!`
+  commands and their output, editor context, the interruption marker.
+  `cliWrappers` lists the surveyed ones; a wrapper a release adds counts as a
+  prompt until it is listed. They become notes rather than nothing, so the
+  clock keeps their timestamps. A slash command is not a prompt even when it
+  expands into one: the expansion is a meta entry of its own. One entry is at
+  most one prompt, whatever blocks carry it.
+
+- **A synthetic message is not a response.** `"model":"<synthetic>"` marks one
+  the CLI wrote itself — an API error, a timeout, "Prompt is too long" — with
+  a message id and a zeroed usage object, 50 of them on the survey machine. It
+  carries no usage in the event model, so nothing counts it as a response.
+  `isResponse` is the one test, shared by the parser and `Scan`.
+
 - **A skill's name is in the call, not in the tool name.** A skill invocation
   is a `Skill` tool call whose arguments carry the name, so counting by tool
   name reports "Skill ×20" and never says which.

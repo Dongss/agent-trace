@@ -111,6 +111,40 @@ func TestScanAgreesWithTheFullParser(t *testing.T) {
 	}
 }
 
+// A synthetic message is one the CLI wrote itself, an API error or a timeout,
+// with a message id and a zeroed usage object. It is not a response, and the
+// listing and the session page have to agree on that or the two counts drift.
+func TestSyntheticMessageIsNotAResponse(t *testing.T) {
+	synthetic := `{"type":"assistant","uuid":"a9","timestamp":"2026-09-18T10:00:05.000Z","message":{"id":"syn-1","model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Request timed out"}],"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`
+	body := oneResponse + "\n" + synthetic + "\n"
+
+	path := t.TempDir() + "/s.jsonl"
+	if err := writeFile(path, body); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Scan(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Responses != 1 {
+		t.Errorf("scan counted %d responses, want 1", got.Responses)
+	}
+
+	run, err := ReadFile(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var responses int
+	for i := range run.Steps {
+		if run.Steps[i].Usage != nil {
+			responses++
+		}
+	}
+	if responses != 1 {
+		t.Errorf("full parse counted %d responses, want 1", responses)
+	}
+}
+
 // A listing shows the working directory in its own column, so Title does not
 // fall back to it: a derived label must not look like one the CLI wrote.
 func TestSessionTitleDoesNotInventOne(t *testing.T) {

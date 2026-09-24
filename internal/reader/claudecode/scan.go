@@ -143,7 +143,8 @@ func scanLine(s string, out *Totals, seenMsg, seenUse map[string]bool) {
 		}
 		// The same usage object is repeated on every content block of a
 		// response, so it is counted once per message.id.
-		if u := e.Message.Usage; u != nil && e.Message.ID != "" && !seenMsg[e.Message.ID] {
+		if isResponse(&e) && !seenMsg[e.Message.ID] {
+			u := e.Message.Usage
 			seenMsg[e.Message.ID] = true
 			out.Responses++
 			out.Tokens.Input += u.InputTokens

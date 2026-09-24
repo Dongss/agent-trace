@@ -203,8 +203,13 @@ type bin struct {
 }
 
 type toolMark struct {
-	X       float64 `json:"x"`
+	X float64 `json:"x"`
+	// W is the call's width on the gap-compressing clock, which is how wide it
+	// draws, not how long it took: a call spanning a compressed idle stretch
+	// draws narrower than one that did not. Ranking calls by duration uses
+	// Secs, the wall clock.
 	W       float64 `json:"w"`
+	Secs    float64 `json:"secs"`
 	Name    string  `json:"name"`
 	Brief   string  `json:"brief"`
 	Outcome string  `json:"outcome"`
@@ -514,14 +519,19 @@ func buildTools(run *event.Run, clock *timeline.Clock) []toolMark {
 			continue
 		}
 		tl := st.Tool
+		// At is the instant X was placed from, so the time a tooltip prints is
+		// the one the mark sits at.
 		var x, w float64
+		var placed time.Time
 		switch {
 		case !tl.Started.IsZero():
+			placed = tl.Started
 			x = clock.X(tl.Started)
 			if tl.HasDuration && !tl.Ended.IsZero() {
 				w = clock.X(tl.Ended) - x
 			}
 		case st.HasTime:
+			placed = st.At
 			x = clock.X(st.At)
 		}
 		m := toolMark{
@@ -529,12 +539,11 @@ func buildTools(run *event.Run, clock *timeline.Clock) []toolMark {
 			Name: tl.Name, Brief: tl.Brief,
 			Outcome: string(tl.Outcome), Detail: tl.Detail,
 			HasDur: tl.HasDuration, Bytes: tl.ResultBytes,
+			At: stampSec(placed),
 		}
 		if tl.HasDuration {
 			m.Dur = dur(tl.Duration)
-		}
-		if !tl.Started.IsZero() {
-			m.At = stampSec(tl.Started)
+			m.Secs = tl.Duration.Seconds()
 		}
 		out = append(out, m)
 	}

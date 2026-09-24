@@ -1020,10 +1020,19 @@
     var cols = {}, maxN = 0;
     marks.forEach(function (t) {
       var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
-      var c = cols[b] || (cols[b] = { n: 0, slow: null });
+      var c = cols[b] || (cols[b] = { n: 0, slow: null, first: null, last: null });
       c[t.outcome] = (c[t.outcome] || 0) + 1;
       c.n++;
-      if (t.hasDur && (!c.slow || t.w > c.slow.w)) c.slow = t;
+      // Longest by wall clock, not by drawn width: w is on the compressed
+      // clock, so a call that waited through an idle stretch would lose to
+      // one that merely ran in a busy one.
+      if (t.hasDur && (!c.slow || t.secs > c.slow.secs)) c.slow = t;
+      // The clock is monotonic, so x orders the slice's calls by time; the
+      // marks themselves arrive in draw order, failures last.
+      if (t.at) {
+        if (!c.first || t.x < c.first.x) c.first = t;
+        if (!c.last || t.x > c.last.x) c.last = t;
+      }
       if (c.n > maxN) maxN = c.n;
     });
     yGrid(g, IW, H, maxN || 1, function (v) { return String(Math.round(v)); });
@@ -1062,6 +1071,14 @@
       hl.setAttribute("opacity", 1);
       hl.setAttribute("x1", bx); hl.setAttribute("x2", bx);
       var nodes = [el("div", { class: "t" }, c.n + (c.n === 1 ? " call" : " calls") + " in this slice")];
+      // A slice is a stretch of the compressed clock, not a fixed length of
+      // wall clock, so it is dated by the calls in it rather than by its edges.
+      if (!c.first) nodes.push(tipRow("at", "unrecorded"));
+      else if (c.first.at === c.last.at) nodes.push(tipRow("at", c.first.at));
+      else {
+        nodes.push(tipRow("first call", c.first.at));
+        nodes.push(tipRow("last call", c.last.at));
+      }
       OUTCOME_ORDER.forEach(function (o) {
         if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
       });

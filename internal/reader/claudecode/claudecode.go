@@ -260,7 +260,7 @@ func (p *parser) assistant(seq int, e *entry) {
 	// Usage belongs to the response, not to the block, and Claude Code repeats
 	// it on every block of the same response.
 	var u *event.Usage
-	if e.Message.Usage != nil && e.Message.ID != "" && !p.seenMsg[e.Message.ID] {
+	if isResponse(e) && !p.seenMsg[e.Message.ID] {
 		p.seenMsg[e.Message.ID] = true
 		w := e.Message.Usage
 		u = &event.Usage{
@@ -328,16 +328,15 @@ func (p *parser) user(seq int, e *entry) {
 		return
 	}
 
-	// A plain string content is a human turn. Everything else is the tool
-	// plumbing the CLI models as user-role messages.
+	// A plain string content is usually a human turn, but the CLI writes its
+	// own entries the same way; typedByUser tells them apart.
 	var text string
 	if err := json.Unmarshal(e.Message.Content, &text); err == nil {
-		st := p.base(seq, e, event.KindPrompt)
-		st.Text = textfmt.Clip(text, p.opt.PreviewRunes)
-		p.run.Steps = append(p.run.Steps, st)
+		p.userText(seq, e, text, !e.IsMeta && typedByUser(text))
 		return
 	}
 
+	prompted := false
 	for _, b := range decodeBlocks(e.Message.Content) {
 		switch b.Type {
 		case "tool_result":
@@ -348,11 +347,78 @@ func (p *parser) user(seq int, e *entry) {
 			if e.IsMeta || e.SourceToolUseID != "" {
 				continue
 			}
-			st := p.base(seq, e, event.KindPrompt)
-			st.Text = textfmt.Clip(b.Text, p.opt.PreviewRunes)
-			p.run.Steps = append(p.run.Steps, st)
+			typed := typedByUser(b.Text)
+			if typed && prompted {
+				continue // one message sent is one prompt, however many blocks carry it
+			}
+			p.userText(seq, e, b.Text, typed)
+			prompted = prompted || typed
 		}
 	}
+}
+
+// userText records a user-role text as a prompt when somebody typed it and as
+// a note when the CLI wrote it. The note keeps the entry's timestamp on the
+// clock: the CLI did write it then, and a run whose last entry is a task
+// notification did not end before it.
+func (p *parser) userText(seq int, e *entry, text string, typed bool) {
+	kind := event.KindNote
+	if typed {
+		kind = event.KindPrompt
+	}
+	st := p.base(seq, e, kind)
+	st.Text = textfmt.Clip(text, p.opt.PreviewRunes)
+	p.run.Steps = append(p.run.Steps, st)
+}
+
+// cliWrappers open the user-role entries Claude Code writes itself: a slash
+// command (either tag first) and what it printed, a `!` shell command and its
+// output, a background task finishing, context an editor attached. They reach
+// the transcript as prompts would, most as a bare string, and none of them is
+// one. On the survey machine task notifications alone (1,063) outnumbered the
+// prompts people typed (1,001). A slash command is not a prompt even when it
+// expands into one: the expansion is written as a separate meta entry.
+//
+// The list is what was surveyed. A wrapper a later release adds counts as a
+// prompt until it is added here.
+var cliWrappers = []string{
+	"<command-name>", "<command-message>",
+	"<local-command-stdout>", "<local-command-caveat>",
+	"<bash-input>", "<bash-stdout>",
+	"<task-notification>", "<system-reminder>",
+	"<ide_opened_file>",
+}
+
+// interrupted opens the marker the CLI writes when somebody stops a response,
+// as "[Request interrupted by user]" or "… for tool use]". Pressing Esc is not
+// a prompt.
+const interrupted = "[Request interrupted by user"
+
+func typedByUser(text string) bool {
+	t := strings.TrimSpace(text)
+	if strings.HasPrefix(t, interrupted) {
+		return false
+	}
+	for _, w := range cliWrappers {
+		if strings.HasPrefix(t, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// syntheticModel is the model Claude Code names on a message it wrote itself
+// rather than received from the API, with every usage field zero: an API
+// error, a timeout, "Prompt is too long", "No response requested.". 50 on the
+// survey machine, each with a message id and a usage object.
+const syntheticModel = "<synthetic>"
+
+// isResponse reports whether an assistant entry carries an API response's
+// usage. A synthetic message has a usage object and is not a response, so it
+// counts as none; Scan asks the same question, and the two must agree.
+func isResponse(e *entry) bool {
+	m := e.Message
+	return m != nil && m.Usage != nil && m.ID != "" && m.Model != syntheticModel
 }
 
 // pairResult closes the tool call a result belongs to. The pairing is by id

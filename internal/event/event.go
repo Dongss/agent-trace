@@ -85,10 +85,13 @@ type Surface struct {
 type StepKind string
 
 const (
-	KindPrompt    StepKind = "prompt"    // a human turn
+	KindPrompt    StepKind = "prompt"    // a message somebody typed to the model
 	KindAssistant StepKind = "assistant" // model output: text or thinking
 	KindTool      StepKind = "tool"      // one tool call and its result
-	KindNote      StepKind = "note"      // turn boundaries, local commands, hooks
+	// KindNote is everything else the CLI wrote on the clock: turn boundaries,
+	// hooks, slash and shell commands, task notifications. Some of it arrives
+	// user-role, shaped like a prompt, and is not one.
+	KindNote StepKind = "note"
 )
 
 // Step is one thing that happened, in transcript order.

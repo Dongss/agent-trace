@@ -259,6 +259,55 @@ func TestFailuresDrawLast(t *testing.T) {
 	}
 }
 
+// The tool lane names the longest call in each slice. A call that waited
+// through an idle stretch draws narrower than it lasted, because the stretch is
+// compressed, so width ranks it below a shorter call from a busy stretch; the
+// mark has to carry the wall clock beside the width.
+func TestToolMarkCarriesWallClockBesideWidth(t *testing.T) {
+	run := &event.Run{Steps: []event.Step{
+		{Seq: 1, Kind: event.KindTool, At: at("2026-09-18T10:00:00Z"), HasTime: true,
+			Tool: &event.Tool{ID: "busy", Name: "Bash", Outcome: event.OutcomeOK,
+				Started: at("2026-09-18T10:00:00Z"), Ended: at("2026-09-18T10:01:30Z"),
+				HasDuration: true, Duration: 90 * time.Second}},
+		{Seq: 2, Kind: event.KindAssistant, At: at("2026-09-18T10:00:45Z"), HasTime: true},
+		{Seq: 3, Kind: event.KindTool, At: at("2026-09-18T10:01:30Z"), HasTime: true,
+			Tool: &event.Tool{ID: "waited", Name: "Edit", Outcome: event.OutcomeOK,
+				Started: at("2026-09-18T10:01:30Z"), Ended: at("2026-09-18T12:00:00Z"),
+				HasDuration: true, Duration: 118*time.Minute + 30*time.Second}},
+		{Seq: 4, Kind: event.KindAssistant, At: at("2026-09-18T12:00:00Z"), HasTime: true},
+	}}
+	var times []time.Time
+	for _, st := range run.Steps {
+		times = append(times, st.At)
+	}
+	clock := timeline.NewClock(times, time.Minute)
+	marks := map[string]toolMark{}
+	for _, m := range buildTools(run, clock) {
+		marks[m.Name] = m
+	}
+	busy, waited := marks["Bash"], marks["Edit"]
+	if waited.W >= busy.W {
+		t.Fatalf("widths %v, %v: the idle stretch was not compressed, so this test proves nothing", busy.W, waited.W)
+	}
+	if busy.Secs != 90 || waited.Secs != 7110 {
+		t.Errorf("secs = %v, %v; want 90, 7110", busy.Secs, waited.Secs)
+	}
+}
+
+// A call placed by its step's timestamp, having none of its own, still says
+// when that was: the tooltip dates a slice by the calls in it.
+func TestToolMarkIsDatedWhereItIsPlaced(t *testing.T) {
+	run := &event.Run{Steps: []event.Step{
+		{Seq: 1, Kind: event.KindTool, At: at("2026-09-18T10:00:00Z"), HasTime: true,
+			Tool: &event.Tool{ID: "a", Name: "Bash", Outcome: event.OutcomeUnpaired}},
+	}}
+	clock := timeline.NewClock([]time.Time{run.Steps[0].At}, time.Minute)
+	got := buildTools(run, clock)
+	if len(got) != 1 || got[0].At != stampSec(run.Steps[0].At) {
+		t.Errorf("marks = %+v; want one dated %q", got, stampSec(run.Steps[0].At))
+	}
+}
+
 // An untimed compaction still has to land on the axis: it is the most
 // important event in the file.
 func TestCompactWithoutTimestampIsPlaced(t *testing.T) {

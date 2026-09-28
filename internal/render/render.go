@@ -404,7 +404,7 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	// run with no timestamped entry has no span to measure, which is not the
 	// same as one that worked for no time.
 	active := stat{"Active time", "—",
-		fmt.Sprintf("%d responses, %d prompts", t.Responses, t.Prompts)}
+		fmt.Sprintf("%d %s, %d %s", t.Responses, plural(t.Responses, "response"), t.Prompts, plural(t.Prompts, "prompt"))}
 	if clock.Span() > 0 {
 		active.Value = dur(clock.Active())
 	}

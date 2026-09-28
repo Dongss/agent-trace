@@ -37,6 +37,12 @@ type Session struct {
 	Version string
 	Size    int64
 	ModTime time.Time
+	// Subagents are the transcripts of the agents the session spawned. Their
+	// tokens are part of the session's, so a listing that caches a scan has to
+	// notice when one of them grows: a background subagent writes its own file
+	// while the session's sits unchanged. Size and ModTime stay the session's
+	// own file, which is what the listing's columns say they are.
+	Subagents []File
 
 	First, Last time.Time
 	HasFirst    bool
@@ -108,11 +114,12 @@ func Discover(root string) ([]Session, error) {
 			}
 			path := filepath.Join(root, d.Name(), f.Name())
 			s := Session{
-				Path:    path,
-				Display: textfmt.Path(path),
-				ID:      strings.TrimSuffix(f.Name(), ".jsonl"),
-				Size:    info.Size(),
-				ModTime: info.ModTime(),
+				Path:      path,
+				Display:   textfmt.Path(path),
+				ID:        strings.TrimSuffix(f.Name(), ".jsonl"),
+				Size:      info.Size(),
+				ModTime:   info.ModTime(),
+				Subagents: subagentFiles(path),
 			}
 			peek(&s)
 			out = append(out, s)

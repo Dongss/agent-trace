@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -64,19 +65,50 @@ func (t Totals) Total() int {
 // none of them cannot carry anything Scan reports.
 var scanKeys = []string{`"usage"`, `"aiTitle"`, `"customTitle"`, `"agentName"`, `"cost-state"`}
 
-// Scan reads one transcript for listing purposes.
+// scanState is what deduplication needs to remember across the lines of a
+// session and its subagents: which responses have been counted, and at what
+// output, and which tool calls.
+type scanState struct {
+	resp    map[string]*event.Usage
+	seenUse map[string]bool
+	// session is false while reading a subagent's transcript, whose titles and
+	// cost snapshots, had it any, would not be the session's.
+	session bool
+}
+
+// Scan reads one session for listing purposes: its transcript and those of
+// the subagents it spawned, as ReadFile does.
 func Scan(path string) (*Totals, error) {
-	f, err := os.Open(path)
-	if err != nil {
+	var out Totals
+	st := scanState{resp: map[string]*event.Usage{}, seenUse: map[string]bool{}, session: true}
+	if err := scanFile(path, &out, &st); err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	st.session = false
+	for _, f := range subagentFiles(path) {
+		err := scanFile(f.Path, &out, &st)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // as in readSubagents
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	var (
-		out     Totals
-		seenMsg = map[string]bool{}
-		seenUse = map[string]bool{}
-	)
+	if out.AgentName == "" {
+		out.AgentName = out.customTitle
+	}
+	out.Title = textfmt.Clip(out.Title, 120)
+	out.AgentName = textfmt.Clip(out.AgentName, 80)
+	return &out, nil
+}
+
+func scanFile(path string, out *Totals, st *scanState) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
 	br := bufio.NewReaderSize(f, 1<<20)
 	for {
@@ -90,28 +122,24 @@ func Scan(path string) (*Totals, error) {
 				}
 			}
 			if interesting {
-				scanLine(s, &out, seenMsg, seenUse)
+				scanLine(s, out, st)
 			}
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
-				break
+				return nil
 			}
-			return nil, rerr
+			return rerr
 		}
 	}
-
-	if out.AgentName == "" {
-		out.AgentName = out.customTitle
-	}
-	out.Title = textfmt.Clip(out.Title, 120)
-	out.AgentName = textfmt.Clip(out.AgentName, 80)
-	return &out, nil
 }
 
-func scanLine(s string, out *Totals, seenMsg, seenUse map[string]bool) {
+func scanLine(s string, out *Totals, st *scanState) {
 	var e entry
 	if json.Unmarshal([]byte(s), &e) != nil {
+		return
+	}
+	if !st.session && e.Type != "assistant" {
 		return
 	}
 	switch e.Type {
@@ -141,21 +169,29 @@ func scanLine(s string, out *Totals, seenMsg, seenUse map[string]bool) {
 		if e.Message == nil {
 			return
 		}
-		// The same usage object is repeated on every content block of a
-		// response, so it is counted once per message.id.
-		if isResponse(&e) && !seenMsg[e.Message.ID] {
-			u := e.Message.Usage
-			seenMsg[e.Message.ID] = true
-			out.Responses++
-			out.Tokens.Input += u.InputTokens
-			out.Tokens.CacheRead += u.CacheReadInputTokens
-			out.Tokens.CacheWrite += u.CacheCreationInputTokens
-			out.Tokens.Output += u.OutputTokens
-			out.Tokens.Thinking += u.OutputTokensDetails.ThinkingTokens
+		// Usage is written on every content block of a response, so it is
+		// counted once per message.id, and a later entry can only raise the
+		// output — the same rule as the full parser's, through the same code.
+		if isResponse(&e) {
+			if prev, seen := st.resp[e.Message.ID]; seen {
+				out0, think0 := prev.Output, prev.Thinking
+				repeatUsage(prev, e.Message)
+				out.Tokens.Output += prev.Output - out0
+				out.Tokens.Thinking += prev.Thinking - think0
+			} else {
+				u := firstUsage(e.Message)
+				st.resp[e.Message.ID] = &u
+				out.Responses++
+				out.Tokens.Input += u.Input
+				out.Tokens.CacheRead += u.CacheRead
+				out.Tokens.CacheWrite += u.CacheWrite
+				out.Tokens.Output += u.Output
+				out.Tokens.Thinking += u.Thinking
+			}
 		}
 		for _, b := range decodeBlocks(e.Message.Content) {
-			if b.Type == "tool_use" && b.ID != "" && !seenUse[b.ID] {
-				seenUse[b.ID] = true
+			if b.Type == "tool_use" && b.ID != "" && !st.seenUse[b.ID] {
+				st.seenUse[b.ID] = true
 				out.ToolCalls++
 			}
 		}

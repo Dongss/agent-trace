@@ -109,6 +109,8 @@
   .stat .label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
   .stat .value { font-size:24px; font-weight:600; letter-spacing:-.02em; margin-top:3px; }
   .stat .note { font-size:12px; color:var(--ink-2); margin-top:2px; }
+  .tools-used th.task { text-align:left; }
+  .tools-used td.task { text-align:left; white-space:normal; min-width:16ch; color:var(--ink-2); }
 
   section.card { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
     padding:16px 16px 10px; margin-top:16px; box-shadow:var(--shadow); }
@@ -750,6 +752,55 @@
     root.appendChild(box);
   })();
 
+  // The agents the session spawned. Their tokens and tool calls are already
+  // in every figure above, because each one's conversation is read from a
+  // transcript of its own beside the session's; this is how much of it was
+  // theirs. It sits under the token charts because that is the question it
+  // answers — in a session that fanned work out, most of the volume is often
+  // here rather than in the session's own file.
+  (function subagentTable() {
+    var S = D.subagents || { rows: [], tokens: 0, of: 0 };
+    var rows = S.rows || [];
+    var box = el("div", { class: "tools-used" });
+    var hd = el("div", { class: "hd" });
+    hd.appendChild(el("h2", null, "Subagents"));
+    hd.appendChild(el("span", { class: "sum" }, rows.length === 0
+      ? "none were spawned"
+      : rows.length + (rows.length === 1 ? " subagent" : " subagents") + " · " +
+        compact(S.tokens) + " of " + compact(S.of) + " tokens" +
+        (S.of ? " (" + pct(S.tokens / S.of) + ")" : "")));
+    box.appendChild(hd);
+
+    var wrap = el("div", { class: "scroll" });
+    var table = el("table");
+    var head = el("tr");
+    ["Agent", "Task", "Started", "Ran", "Responses", "Tokens", "Tool calls"].forEach(function (h) {
+      head.appendChild(el("th", h === "Task" ? { class: "task" } : null, h));
+    });
+    table.appendChild(el("thead")).appendChild(head);
+    var body = el("tbody");
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, r.agent));
+      tr.appendChild(el("td", { class: "task" }, r.task || "—"));
+      tr.appendChild(el("td", null, r.started));
+      tr.appendChild(el("td", null, r.ran));
+      tr.appendChild(el("td", null, num(r.responses)));
+      tr.appendChild(el("td", null, num(r.tokens)));
+      tr.appendChild(el("td", null, num(r.tools)));
+      body.appendChild(tr);
+    });
+    if (!rows.length) {
+      var empty = el("tr");
+      empty.appendChild(el("td", { colspan: "7", class: "empty-row" }, "No subagents in this run."));
+      body.appendChild(empty);
+    }
+    table.appendChild(body);
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+    root.appendChild(box);
+  })();
+
   /* ---------- 3. tools: what, then when ---------- */
   // MCP tool names are shortened to server/tool; a skill's name is whatever it
   // was invoked by, plugin prefix included. Each subject gets the pair: the
@@ -1036,9 +1087,10 @@
     var cols = {}, maxN = 0;
     marks.forEach(function (t) {
       var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
-      var c = cols[b] || (cols[b] = { n: 0, slow: null, first: null, last: null });
+      var c = cols[b] || (cols[b] = { n: 0, sub: 0, slow: null, first: null, last: null });
       c[t.outcome] = (c[t.outcome] || 0) + 1;
       c.n++;
+      if (t.agent) c.sub++;
       // Longest by wall clock, not by drawn width: w is on the compressed
       // clock, so a call that waited through an idle stretch would lose to
       // one that merely ran in a busy one.
@@ -1098,11 +1150,13 @@
       OUTCOME_ORDER.forEach(function (o) {
         if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
       });
+      if (c.sub) nodes.push(tipRow("in subagents", num(c.sub)));
       // The one call worth naming out of the slice, carrying what the
       // per-call hover used to say about it. A slice whose calls all went
       // unpaired has no longest call: an unknown duration is not a short one.
       if (c.slow) {
-        nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "")));
+        nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "") +
+          (c.slow.agent ? ", in " + c.slow.agent : "")));
         if (c.slow.brief) nodes.push(el("div", { class: "m" }, c.slow.brief));
         if (c.slow.bytes) nodes.push(tipRow("result", bytes(c.slow.bytes)));
         if (c.slow.detail) nodes.push(el("div", { class: "m" }, c.slow.detail));
@@ -1178,7 +1232,9 @@
     // gone wrong. Everything else this used to explain was either said better
     // where it applies or was commentary nobody needed under every session.
     var lines = [];
-    lines.push(r.steps + " steps read from " + m.path + ".");
+    lines.push(r.steps + " steps read from " + m.path +
+      (r.subagents ? " and the " + (r.subagents === 1 ? "subagent transcript" : r.subagents + " subagent transcripts") +
+        " beside it" : "") + ".");
     if (r.truncated) lines.push("The last line was incomplete: the CLI was still writing this session when it was read.");
     if (r.malformed) lines.push(r.malformed + " line(s) did not parse.");
     var ul = el("ul");

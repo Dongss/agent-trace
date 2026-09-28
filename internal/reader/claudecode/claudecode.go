@@ -54,14 +54,22 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// ReadFile parses one transcript.
+// ReadFile parses one session: its transcript, and the transcripts of any
+// subagents it spawned, which Claude Code writes beside it.
 func ReadFile(path string, opt Options) (*event.Run, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	return Read(f, path, opt)
+	run, err := Read(f, path, opt)
+	if err != nil {
+		return nil, err
+	}
+	if err := readSubagents(run, path, opt.withDefaults()); err != nil {
+		return nil, err
+	}
+	return run, nil
 }
 
 // Read parses a transcript from r. path is recorded on the Run and used for
@@ -75,15 +83,28 @@ func Read(r io.Reader, path string, opt Options) (*event.Run, error) {
 		Skipped: map[string]int{},
 	}
 
-	p := &parser{
+	p := newParser(run, opt)
+	if err := p.read(r, path); err != nil {
+		return nil, err
+	}
+	p.finish()
+	return run, nil
+}
+
+func newParser(run *event.Run, opt Options) *parser {
+	return &parser{
 		opt:      opt,
 		run:      run,
 		pending:  map[string]*pendingTool{},
-		seenMsg:  map[string]bool{},
+		usage:    map[string]*event.Usage{},
 		cwdCount: map[string]int{},
 		versions: map[string]bool{},
 		surfaces: map[string]map[string]bool{},
 	}
+}
+
+func (p *parser) read(r io.Reader, path string) error {
+	run := p.run
 
 	// A transcript line can be megabytes long — a Read of a large file, a
 	// screenshot as base64 — so lines are read without an upper bound instead
@@ -112,12 +133,10 @@ func Read(r io.Reader, path string, opt Options) (*event.Run, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("read %s: %w", textfmt.Path(path), err)
+			return fmt.Errorf("read %s: %w", textfmt.Path(path), err)
 		}
 	}
-
-	p.finish()
-	return run, nil
+	return nil
 }
 
 type pendingTool struct {
@@ -128,11 +147,15 @@ type parser struct {
 	opt     Options
 	run     *event.Run
 	pending map[string]*pendingTool
-	// seenMsg deduplicates usage across the several entries one API response is
-	// written as.
-	seenMsg  map[string]bool
-	cwdCount map[string]int
-	versions map[string]bool
+	// usage deduplicates across the several entries one API response is
+	// written as: the first entry of a message.id gets the Usage, and later
+	// ones only ever raise its Output. See repeatUsage.
+	usage map[string]*event.Usage
+	// sidechain is set while reading a subagent's transcript, where every
+	// user-role entry was written by the agent that spawned it.
+	sidechain bool
+	cwdCount  map[string]int
+	versions  map[string]bool
 	// surfaces maps an entrypoint to the versions seen under it, with
 	// surfaceOrder keeping the order each was first seen: a session that moved
 	// from the terminal to an editor reads in the order it happened.
@@ -257,18 +280,17 @@ func (p *parser) assistant(seq int, e *entry) {
 	}
 	blocks := decodeBlocks(e.Message.Content)
 
-	// Usage belongs to the response, not to the block, and Claude Code repeats
-	// it on every block of the same response.
+	// Usage belongs to the response, not to the block, and Claude Code writes
+	// it on every block of the same response. The first entry carries it;
+	// see repeatUsage for what a later one may change.
 	var u *event.Usage
-	if isResponse(e) && !p.seenMsg[e.Message.ID] {
-		p.seenMsg[e.Message.ID] = true
-		w := e.Message.Usage
-		u = &event.Usage{
-			Input:      w.InputTokens,
-			CacheRead:  w.CacheReadInputTokens,
-			CacheWrite: w.CacheCreationInputTokens,
-			Output:     w.OutputTokens,
-			Thinking:   w.OutputTokensDetails.ThinkingTokens,
+	if isResponse(e) {
+		if prev, seen := p.usage[e.Message.ID]; seen {
+			repeatUsage(prev, e.Message)
+		} else {
+			first := firstUsage(e.Message)
+			u = &first
+			p.usage[e.Message.ID] = u
 		}
 	}
 
@@ -366,9 +388,13 @@ func (p *parser) user(seq int, e *entry) {
 // a note when the CLI wrote it. The note keeps the entry's timestamp on the
 // clock: the CLI did write it then, and a run whose last entry is a task
 // notification did not end before it.
+//
+// Nothing in a subagent's transcript is typed. Its opening message is the task
+// the spawning agent wrote, and carries no origin and no wrapper — exactly the
+// shape of a typed turn in a session's own file.
 func (p *parser) userText(seq int, e *entry, text string, typed bool) {
 	kind := event.KindNote
-	if typed {
+	if typed && !p.sidechain {
 		kind = event.KindPrompt
 	}
 	st := p.base(seq, e, kind)
@@ -429,6 +455,39 @@ const syntheticModel = "<synthetic>"
 func isResponse(e *entry) bool {
 	m := e.Message
 	return m != nil && m.Usage != nil && m.ID != "" && m.Model != syntheticModel
+}
+
+// firstUsage is a response's usage as its first entry records it.
+func firstUsage(m *message) event.Usage {
+	w := m.Usage
+	return event.Usage{
+		Input:      w.InputTokens,
+		CacheRead:  w.CacheReadInputTokens,
+		CacheWrite: w.CacheCreationInputTokens,
+		Output:     w.OutputTokens,
+		Thinking:   w.OutputTokensDetails.ThinkingTokens,
+	}
+}
+
+// repeatUsage folds a later entry of the same response into its usage.
+//
+// In a session's own transcript every entry of a response carries identical
+// usage — all 6,801 multi-entry responses surveyed — and this changes nothing.
+// A subagent's transcript is written while the response streams: 121 of the
+// 145 surveyed responses there never got an entry with a stop reason, and the
+// output count rises from one entry to the next while the context fields stay
+// put. Taking the first entry's output gave 6,991 tokens over those
+// responses; taking the largest gives 16,821, and is still a floor wherever no
+// entry finished; the page shows it as it is, unmarked, by choice. So a later
+// entry can raise the output, and nothing else.
+func repeatUsage(u *event.Usage, m *message) {
+	w := m.Usage
+	if w.OutputTokens > u.Output {
+		u.Output = w.OutputTokens
+	}
+	if t := w.OutputTokensDetails.ThinkingTokens; t > u.Thinking {
+		u.Thinking = t
+	}
 }
 
 // pairResult closes the tool call a result belongs to. The pairing is by id
@@ -570,16 +629,22 @@ func (p *parser) finish() {
 		})
 		p.run.Surfaces = append(p.run.Surfaces, s)
 	}
+	span(p.run)
+}
 
-	for _, st := range p.run.Steps {
+// span sets the run's Start and End from its timestamped steps.
+func span(run *event.Run) {
+	run.Start, run.End = time.Time{}, time.Time{}
+	for i := range run.Steps {
+		st := &run.Steps[i]
 		if !st.HasTime {
 			continue
 		}
-		if p.run.Start.IsZero() || st.At.Before(p.run.Start) {
-			p.run.Start = st.At
+		if run.Start.IsZero() || st.At.Before(run.Start) {
+			run.Start = st.At
 		}
-		if st.At.After(p.run.End) {
-			p.run.End = st.At
+		if st.At.After(run.End) {
+			run.End = st.At
 		}
 	}
 }

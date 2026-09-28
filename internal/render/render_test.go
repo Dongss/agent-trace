@@ -370,6 +370,9 @@ func TestPayloadListsAreNeverNull(t *testing.T) {
 			t.Errorf("%s is null; the page would call forEach on it", key)
 		}
 	}
+	if sub, _ := v["subagents"].(map[string]any); sub == nil || sub["rows"] == nil {
+		t.Errorf("subagents.rows is null; the page would call forEach on it")
+	}
 }
 
 // A back link exists only where there is somewhere to go back to. A file
@@ -570,5 +573,90 @@ func TestCompactMarkCarriesItsMoment(t *testing.T) {
 	}
 	if c.Trigger != "auto" || c.Dur == "" {
 		t.Errorf("mark = %+v", c)
+	}
+}
+
+func statNamed(v view, label string) stat {
+	for _, s := range v.Stats {
+		if s.Label == label {
+			return s
+		}
+	}
+	return stat{}
+}
+
+// A subagent's tokens are already in every tile, because the reader merges its
+// steps into the session's. The page says how much of the total was theirs,
+// and lists each one.
+func TestSubagentsAreTabulatedAndCalledOut(t *testing.T) {
+	run := sampleRun()
+	run.Subagents = []event.Subagent{
+		{ID: "a7fc360f4cf5c9af5", Type: "Explore", Description: "Survey things"},
+		{ID: "b0"}, // no sidecar: named by its id
+	}
+	run.Steps = append(run.Steps,
+		event.Step{Seq: 20, Kind: event.KindAssistant, At: at("2026-09-18T10:05:00Z"), HasTime: true,
+			Agent: "a7fc360f4cf5c9af5", Sidechain: true, Model: "claude-opus-5",
+			Usage: &event.Usage{Input: 2, CacheWrite: 23000, Output: 8}},
+		event.Step{Seq: 21, Kind: event.KindTool, At: at("2026-09-18T10:06:00Z"), HasTime: true,
+			Agent: "a7fc360f4cf5c9af5", Sidechain: true,
+			Tool: &event.Tool{ID: "s1", Name: "Read", Outcome: event.OutcomeOK, Started: at("2026-09-18T10:06:00Z")}},
+		event.Step{Seq: 30, Kind: event.KindAssistant, At: at("2026-09-18T10:02:00Z"), HasTime: true,
+			Agent: "b0", Sidechain: true, Model: "claude-opus-5",
+			Usage: &event.Usage{Input: 5, Output: 3}},
+	)
+	v := build(run, Options{})
+
+	rows := v.Subagents.Rows
+	if len(rows) != 2 {
+		t.Fatalf("rows %+v", rows)
+	}
+	// In the order they started, not the order they were read.
+	if rows[0].Agent != "agent b0" || rows[1].Agent != "Explore" || rows[1].Task != "Survey things" {
+		t.Errorf("rows %+v, want b0 first by time and each named", rows)
+	}
+	if r := rows[1]; r.Tokens != 2+23000+8 || r.Tools != 1 || r.Ran != "1m0s" {
+		t.Errorf("Explore row %+v", r)
+	}
+	if v.Subagents.Tokens != 23010+8 {
+		t.Errorf("subagent tokens %d", v.Subagents.Tokens)
+	}
+	tot := timeline.Compute(run)
+	if v.Subagents.Of != tot.All.Input+tot.All.CacheRead+tot.All.CacheWrite+tot.All.Output {
+		t.Errorf("of %d, want the session's total tokens", v.Subagents.Of)
+	}
+
+	if n := statNamed(v, "Total tokens").Note; n != "23k of it in 2 subagents" {
+		t.Errorf("total tokens note %q", n)
+	}
+	// Output is shown as the transcript has it, a subagent's included, with
+	// nothing added to say part of it may have been cut short.
+	if out := statNamed(v, "Output tokens"); out.Value != compact(tot.All.Output) || !strings.Contains(out.Note, "thinking") {
+		t.Errorf("output tile %+v", out)
+	}
+	var read toolMark
+	for _, m := range v.Tools {
+		if m.Name == "Read" && m.Agent != "" {
+			read = m
+		}
+	}
+	if read.Agent != "Explore" {
+		t.Errorf("the subagent's Read carries agent %q", read.Agent)
+	}
+
+	// A session with none still has the table, and the tiles say what they
+	// always said.
+	plain := build(sampleRun(), Options{})
+	if plain.Subagents.Rows == nil || len(plain.Subagents.Rows) != 0 {
+		t.Errorf("rows %v, want an empty list", plain.Subagents.Rows)
+	}
+	if n := statNamed(plain, "Total tokens").Note; n != "input, cache and output" {
+		t.Errorf("total tokens note without subagents %q", n)
+	}
+
+	// A window keeps only the subagents that did something inside it.
+	win := timeline.Window(run, at("2026-09-18T10:04:00Z"), at("2026-09-18T10:10:00Z"))
+	if rows := build(win, Options{}).Subagents.Rows; len(rows) != 1 || rows[0].Agent != "Explore" {
+		t.Errorf("windowed rows %+v, want Explore alone", rows)
 	}
 }

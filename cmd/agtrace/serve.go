@@ -395,8 +395,8 @@ func backHref(agentID string, from url.Values) string {
 // totalsCache keeps the per-session scan across requests. Titles and token
 // counts need the whole transcript read, which is 1.6s for the 911 MB on the
 // survey machine — fine once, not on every page load. The key includes size
-// and mtime, so a session that has grown is rescanned and a finished one never
-// is.
+// and mtime, of the session's file and of each of its subagents', so a session
+// that has grown is rescanned and a finished one never is.
 type totalsCache struct {
 	mu sync.Mutex
 	m  map[string]*claudecode.Totals
@@ -409,7 +409,7 @@ func newTotalsCache() *totalsCache {
 func (c *totalsCache) fill(sessions []claudecode.Session) {
 	for i := range sessions {
 		s := &sessions[i]
-		key := fmt.Sprintf("%s|%d|%d", s.Path, s.Size, s.ModTime.UnixNano())
+		key := scanKey(*s)
 
 		c.mu.Lock()
 		hit, ok := c.m[key]
@@ -434,6 +434,15 @@ func (c *totalsCache) fill(sessions []claudecode.Session) {
 		c.m[key] = t
 		c.mu.Unlock()
 	}
+}
+
+func scanKey(s claudecode.Session) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s|%d|%d", s.Path, s.Size, s.ModTime.UnixNano())
+	for _, f := range s.Subagents {
+		fmt.Fprintf(&b, "|%s|%d|%d", f.Path, f.Size, f.ModTime.UnixNano())
+	}
+	return b.String()
 }
 
 // sortKeys is what the listing's script orders by, in the order the headers

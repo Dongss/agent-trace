@@ -207,6 +207,23 @@ func TestSortKeysTellZeroFromUnscanned(t *testing.T) {
 	}
 }
 
+// A background subagent writes its own file while the session's sits still,
+// and its tokens are the session's. A cache keyed on the session's file alone
+// would keep showing the figure from before the subagent started.
+func TestScanKeyNoticesASubagentGrowing(t *testing.T) {
+	s := claudecode.Session{Path: "/p/s.jsonl", Size: 42, ModTime: time.Unix(1700000000, 0),
+		Subagents: []claudecode.File{{Path: "/p/s/subagents/agent-a.jsonl", Size: 10, ModTime: time.Unix(1700000000, 0)}}}
+	before := scanKey(s)
+	s.Subagents[0].Size, s.Subagents[0].ModTime = 900, time.Unix(1700000060, 0)
+	if scanKey(s) == before {
+		t.Error("the key did not change when a subagent's transcript grew")
+	}
+	s.Subagents = append(s.Subagents, claudecode.File{Path: "/p/s/subagents/agent-b.jsonl", Size: 1})
+	if k := scanKey(s); k == before || !strings.Contains(k, "agent-b") {
+		t.Errorf("the key %q did not change when a subagent was spawned", k)
+	}
+}
+
 // The order and the hidden rows are part of the view, so the way back carries
 // them beside the filter.
 func TestBackHrefCarriesFilterAndOrder(t *testing.T) {

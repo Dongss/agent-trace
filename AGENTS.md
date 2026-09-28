@@ -99,9 +99,15 @@ Code that ignores one produces a timeline that looks right and is wrong.
   commands and their output, editor context, the interruption marker.
   `cliWrappers` lists the surveyed ones; a wrapper a release adds counts as a
   prompt until it is listed. They become notes rather than nothing, so the
-  clock keeps their timestamps. A slash command is not a prompt even when it
-  expands into one: the expansion is a meta entry of its own. One entry is at
-  most one prompt, whatever blocks carry it.
+  clock keeps their timestamps. Where an entry carries `origin`, that decides
+  first: `human` on what somebody typed, `task-notification` on a task
+  finishing. It is the only way to tell a typed slash command from a `/loop`
+  firing, which is written identically but with no origin — 424 firings on
+  2.1.231–2.1.236, and one run to check on 2.1.283; the one typed skill
+  command surveyed carried `human`. Without an origin a slash command is not
+  a prompt even when it expands into one, the expansion being a meta entry of
+  its own; so a session driven by one typed skill read as 0 prompts. One entry
+  is at most one prompt, whatever blocks carry it.
 
 - **A synthetic message is not a response.** `"model":"<synthetic>"` marks one
   the CLI wrote itself — an API error, a timeout, "Prompt is too long" — with

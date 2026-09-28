@@ -329,10 +329,15 @@ func (p *parser) user(seq int, e *entry) {
 	}
 
 	// A plain string content is usually a human turn, but the CLI writes its
-	// own entries the same way; typedByUser tells them apart.
+	// own entries the same way. Where the entry says who wrote it, that
+	// decides; otherwise typedByUser tells them apart.
 	var text string
 	if err := json.Unmarshal(e.Message.Content, &text); err == nil {
-		p.userText(seq, e, text, !e.IsMeta && typedByUser(text))
+		typed := !e.IsMeta && typedByUser(text)
+		if e.Origin != nil && e.Origin.Kind != "" {
+			typed = e.Origin.Kind == "human"
+		}
+		p.userText(seq, e, text, typed)
 		return
 	}
 
@@ -376,17 +381,22 @@ func (p *parser) userText(seq int, e *entry, text string, typed bool) {
 // output, a background task finishing, context an editor attached. They reach
 // the transcript as prompts would, most as a bare string, and none of them is
 // one. On the survey machine task notifications alone (1,063) outnumbered the
-// prompts people typed (1,001). A slash command is not a prompt even when it
-// expands into one: the expansion is written as a separate meta entry.
+// prompts people typed (1,001). Without an origin a slash command is not a
+// prompt even when it expands into one, because a /loop firing is written
+// exactly like a typed /loop. Where an entry carries an origin it decides
+// before this list is consulted: none of 425 /loop firings carries one (424
+// on 2.1.231–2.1.236, one run to check on 2.1.283), nor do local commands
+// like /model, while the one typed slash command surveyed that went to the
+// model (a skill, on 2.1.281) carries "human".
 //
 // The list is what was surveyed. A wrapper a later release adds counts as a
-// prompt until it is added here.
+// prompt until it is added here, unless the entry carries an origin.
 var cliWrappers = []string{
 	"<command-name>", "<command-message>",
 	"<local-command-stdout>", "<local-command-caveat>",
 	"<bash-input>", "<bash-stdout>",
 	"<task-notification>", "<system-reminder>",
-	"<ide_opened_file>",
+	"<ide_opened_file>", "<ide_selection>",
 }
 
 // interrupted opens the marker the CLI writes when somebody stops a response,

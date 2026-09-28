@@ -300,6 +300,7 @@ func TestOnlyRealTurnsCountAsPrompts(t *testing.T) {
 		// Editor context beside what was typed, and a message typed as two
 		// blocks: one entry, one prompt.
 		`{"type":"user","uuid":"u13","timestamp":"2026-09-18T10:00:12.000Z","message":{"role":"user","content":[{"type":"text","text":"<ide_opened_file>The user opened the file /tmp/a.go in the IDE.</ide_opened_file>"},{"type":"text","text":"fix this"},{"type":"text","text":"and that"}]}}`,
+		`{"type":"user","uuid":"u14","timestamp":"2026-09-18T10:00:13.000Z","message":{"role":"user","content":[{"type":"text","text":"<ide_selection>The user selected the lines 3 to 9 from /tmp/a.go:\nfunc a() {}</ide_selection>"},{"type":"text","text":"why is this slow"}]}}`,
 	)
 	var prompts []string
 	var notes int
@@ -316,11 +317,45 @@ func TestOnlyRealTurnsCountAsPrompts(t *testing.T) {
 			}
 		}
 	}
-	if len(prompts) != 2 || prompts[0] != "do the thing" || prompts[1] != "fix this" {
-		t.Errorf("prompts %q, want the two typed messages", prompts)
+	if len(prompts) != 3 || prompts[0] != "do the thing" || prompts[1] != "fix this" || prompts[2] != "why is this slow" {
+		t.Errorf("prompts %q, want the three typed messages", prompts)
 	}
-	if notes != 10 {
-		t.Errorf("%d notes, want 10: u4 to u12 and u13's editor context", notes)
+	if notes != 11 {
+		t.Errorf("%d notes, want 11: u4 to u12 and the editor context in u13 and u14", notes)
+	}
+}
+
+// Where an entry says who wrote it, that decides, wrapper or not. A skill run
+// by typing its slash command is a prompt: without it a session driven by one
+// reads as responses to nothing. A /loop firing is written like the /loop
+// somebody typed but carries no origin, so it stays a note, as does a task
+// notification, which names itself. The shapes are from 2.1.281 and 2.1.283.
+func TestOriginDecidesWhereAnEntryStatesIt(t *testing.T) {
+	run := read(t,
+		// Local commands carry no origin and reach no model.
+		`{"type":"user","uuid":"u1","timestamp":"2026-09-24T07:27:48.000Z","version":"2.1.281","message":{"role":"user","content":"<command-name>/reload-plugins</command-name>\n            <command-message>reload-plugins</command-message>\n            <command-args></command-args>"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-09-24T07:28:20.000Z","version":"2.1.281","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>claude-hud:setup</command-message>\n<command-name>/claude-hud:setup</command-name>"}}`,
+		// The skill's expansion is a meta entry of its own and adds nothing.
+		`{"type":"user","uuid":"u3","timestamp":"2026-09-24T07:28:20.000Z","version":"2.1.281","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"# Setup\n\nConfigure the status line."}]}}`,
+		`{"type":"user","uuid":"u4","timestamp":"2026-09-28T02:02:01.000Z","version":"2.1.283","message":{"role":"user","content":"<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args>check the build</command-args>"}}`,
+		`{"type":"user","uuid":"u5","timestamp":"2026-09-28T02:03:00.000Z","version":"2.1.283","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}}`,
+		`{"type":"user","uuid":"u6","timestamp":"2026-09-28T02:04:00.000Z","version":"2.1.283","origin":{"kind":"human"},"message":{"role":"user","content":"ship it"}}`,
+	)
+	var prompts []string
+	var notes int
+	for i := range run.Steps {
+		switch st := &run.Steps[i]; st.Kind {
+		case event.KindPrompt:
+			prompts = append(prompts, st.Text)
+		case event.KindNote:
+			notes++
+		}
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[0], "/claude-hud:setup") || prompts[1] != "ship it" {
+		t.Errorf("prompts %q, want the typed skill command and the typed message", prompts)
+	}
+	if notes != 3 {
+		t.Errorf("%d notes, want 3: the local command, the /loop firing, the task notification", notes)
 	}
 }
 

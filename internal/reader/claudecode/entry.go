@@ -38,6 +38,12 @@ type entry struct {
 	AgentName   string `json:"agentName"`
 	IsMeta      bool   `json:"isMeta"`
 
+	// origin says who put a user-role entry there: "human" on what somebody
+	// typed, "task-notification" on a background task finishing. Written by
+	// every release surveyed, 2.1.220 onward, and absent on most entries the
+	// CLI writes itself.
+	Origin *origin `json:"origin"`
+
 	Message *message `json:"message"`
 
 	// Tool result side.
@@ -63,6 +69,10 @@ type entry struct {
 	TotalLinesRemoved   int                   `json:"totalLinesRemoved"`
 	ModelUsage          map[string]modelUsage `json:"modelUsage"`
 	HasUnknownModelCost bool                  `json:"hasUnknownModelCost"`
+}
+
+type origin struct {
+	Kind string `json:"kind"`
 }
 
 type message struct {

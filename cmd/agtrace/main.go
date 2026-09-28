@@ -173,7 +173,7 @@ func compactInt(n int) string {
 		return trimZero(f/1e9) + "B"
 	case n >= 1_000_000:
 		return trimZero(f/1e6) + "M"
-	case n >= 10_000:
+	case n >= 1_000: // as on the session page; see compact in internal/render
 		return trimZero(f/1e3) + "k"
 	}
 	return fmt.Sprintf("%d", n)

@@ -327,7 +327,7 @@ func TestCompactWithoutTimestampIsPlaced(t *testing.T) {
 
 func TestCompactAndDurFormatting(t *testing.T) {
 	for in, want := range map[int]string{
-		0: "0", 999: "999", 9999: "9999", 10000: "10k", 991610: "992k",
+		0: "0", 999: "999", 1000: "1k", 4321: "4.3k", 9999: "10k", 10000: "10k", 991610: "992k",
 		1_014_866: "1M", 2_514_457: "2.5M", 1_326_072_767: "1.3B",
 	} {
 		if got := compact(in); got != want {

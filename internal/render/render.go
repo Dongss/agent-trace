@@ -957,6 +957,12 @@ func short(id string) string {
 
 // compact formats a token count the way a reader scans it: 1.3M, not
 // 1,326,072,767. Exact figures live in the tables.
+//
+// From a thousand up. It started at ten thousand, and a bare four-digit
+// figure in a row of 53.5M and 1.6M read as one that had lost its unit.
+// Below a thousand there is nothing to abbreviate; the tile's label is the
+// unit. The page's script formats the same way, so a figure reads the same
+// in a tile as in the heading beside it.
 func compact(n int) string {
 	f := float64(n)
 	switch {
@@ -964,7 +970,7 @@ func compact(n int) string {
 		return trim(f/1e9) + "B"
 	case n >= 1_000_000:
 		return trim(f/1e6) + "M"
-	case n >= 10_000:
+	case n >= 1_000:
 		return trim(f/1e3) + "k"
 	}
 	return fmt.Sprintf("%d", n)

@@ -165,7 +165,7 @@ func humanBytes(n int64) string {
 }
 
 // compactInt is the short form a scanning eye wants in a table: 1.4B, not
-// 1,357,365,806. The exact figure is in the cell's tooltip.
+// 1,357,365,806. The exact figures are on the session's own page.
 func compactInt(n int) string {
 	f := float64(n)
 	switch {

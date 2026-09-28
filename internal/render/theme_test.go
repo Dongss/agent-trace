@@ -44,16 +44,56 @@ func TestThemeAssetsAreServable(t *testing.T) {
 	}
 }
 
+// The hover text is shared the way the theme is, and for the same reason.
+func TestTipAssetsAreServable(t *testing.T) {
+	css, js := TipCSS(), TipJS()
+	for _, want := range []string{".tip {", ".tip.on", "#agtrace-tip", ".has-tip"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("tip.css is missing %q", want)
+		}
+	}
+	// One delegated listener for data-tip, and attach for the rest.
+	for _, want := range []string{"agtraceTip", "attach:", "data-tip", "mouseover", "focusin", "agtrace-tip"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("tip.js is missing %q", want)
+		}
+	}
+	if strings.Contains(js, "</script") || strings.Contains(css, "</style") {
+		t.Error("a tip asset can break out of its element")
+	}
+}
+
+// The browser's title tooltip is slow to appear, never appears on a touch
+// screen, and in use was not seen at all. The page's hover text goes through
+// tip.js; this keeps a title from coming back by habit.
+func TestPageUsesNoTitleTooltips(t *testing.T) {
+	src, err := assets.ReadFile("page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// document.title is the tab's name, not a tooltip.
+	page := strings.ReplaceAll(string(src), "document.title", "")
+	for _, bad := range []string{`title:`, `.title =`, `setAttribute("title"`, ` title="`} {
+		if strings.Contains(page, bad) {
+			t.Errorf("page.html uses a title tooltip (%q); use withTip", bad)
+		}
+	}
+}
+
 func TestPageSubstitutesTheThemeAssets(t *testing.T) {
 	page, err := Page(sampleRun(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	html := string(page)
-	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/"} {
+	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/",
+		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/"} {
 		if strings.Contains(html, marker) {
 			t.Errorf("%s survived into the output", marker)
 		}
+	}
+	if !strings.Contains(html, "window.agtraceTip = {") {
+		t.Error("the tip script did not reach the page")
 	}
 	if !strings.Contains(html, "--surface-1:#fcfcfb") {
 		t.Error("the palette did not reach the page")

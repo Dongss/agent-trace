@@ -1,0 +1,16 @@
+/* The tooltip box every agtrace page draws: the charts' own tips on the
+   session page, and the hover text of tip.js on both pages. Rows inside a
+   chart's tip are the session page's business and live there. */
+.tip { position:absolute; z-index:5; pointer-events:none; min-width:150px; max-width:330px;
+  background:var(--surface-1); color:var(--ink); border:1px solid var(--border); border-radius:8px;
+  padding:8px 10px; font-size:12px; line-height:1.45; text-align:left; white-space:normal;
+  font-variant-numeric:normal; letter-spacing:normal; text-transform:none; font-weight:normal;
+  box-shadow:0 2px 6px rgba(0,0,0,.14), 0 12px 32px rgba(0,0,0,.12);
+  opacity:0; transition:opacity .08s; }
+.tip.on { opacity:1; }
+/* tip.js's box holds plain text, so a line break in it is a line break. */
+#agtrace-tip { white-space:pre-line; }
+/* A caveat says it has more to say: the help cursor here, and a dotted
+   underline wherever each page puts one on the text itself. */
+.has-tip { cursor:help; }
+[aria-describedby="agtrace-tip"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

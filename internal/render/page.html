@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>agtrace</title>
 <script>/*__AGTRACE_THEME_JS__*/</script>
+<script>/*__AGTRACE_TIP_JS__*/</script>
 <style>
   /*__AGTRACE_THEME_CSS__*/
+  /*__AGTRACE_TIP_CSS__*/
 
   * { box-sizing: border-box; }
   body {
@@ -82,7 +84,7 @@
   .model .s { font-size:11.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; margin:1px 0 5px; }
   .model .bar { height:3px; border-radius:2px; background:var(--grid); overflow:hidden; }
   .model .bar i { display:block; height:100%; background:var(--s-out); }
-  .models .also { font-size:12px; color:var(--ink-2); cursor:help; }
+  .models .also { font-size:12px; color:var(--ink-2); }
 
   /* The identity block takes the room it needs and wraps inside itself; a
      working directory can be 90 characters long and must not push the controls
@@ -109,6 +111,9 @@
   .stat .label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
   .stat .value { font-size:24px; font-weight:600; letter-spacing:-.02em; margin-top:3px; }
   .stat .note { font-size:12px; color:var(--ink-2); margin-top:2px; }
+  /* A caveat is underlined like an abbreviation, so its hover can be found
+     without being hunted for; tip.css gives it the help cursor. */
+  .also.has-tip { text-decoration:underline dotted; text-underline-offset:2px; }
   .tools-used th.task { text-align:left; }
   .tools-used td.task { text-align:left; white-space:normal; min-width:16ch; color:var(--ink-2); }
 
@@ -140,11 +145,8 @@
   .compact-hit { cursor:default; }
   .tool { cursor:default; }
 
-  .tip { position:absolute; z-index:5; pointer-events:none; min-width:150px; max-width:330px;
-    background:var(--surface-1); color:var(--ink); border:1px solid var(--border); border-radius:8px;
-    padding:8px 10px; font-size:12px; box-shadow:0 2px 6px rgba(0,0,0,.14), 0 12px 32px rgba(0,0,0,.12);
-    opacity:0; transition:opacity .08s; }
-  .tip.on { opacity:1; }
+  /* The box itself is tip.css's, shared with the listing; the rows a
+     chart's tip is made of are this page's. */
   .tip .t { font-weight:600; margin-bottom:4px; word-break:break-word; }
   .tip .r { display:flex; justify-content:space-between; gap:14px; font-variant-numeric:tabular-nums; }
   .tip .r span:first-child { color:var(--ink-2); }
@@ -196,6 +198,10 @@
     return n + "B";
   }
 
+  // Hover text for anything that is not a chart, from tip.js; see there for
+  // why it is not the browser's title tooltip, and for the options.
+  var withTip = window.agtraceTip.attach;
+
   /* ---------- header, stats ---------- */
   var root = document.getElementById("root");
   var m = D.meta;
@@ -214,7 +220,8 @@
     topbar.appendChild(back);
   }
   var pills = el("div", { class: "pills" });
-  if (m.live) pills.appendChild(el("span", { class: "pill live", title: "The last line of the transcript was incomplete" }, "still running"));
+  if (m.live) pills.appendChild(withTip(el("span", { class: "pill live" }, "still running"),
+    "The last line of the transcript was incomplete: the CLI was still writing it."));
   var tg = el("button", { class: "toggle", type: "button" });
   window.agtraceTheme.wire(tg);
   pills.appendChild(tg);
@@ -264,8 +271,7 @@
     if (sub2.childNodes.length) sub2.appendChild(el("span", null, "  ·  "));
     var t = el("span", null, sf.name ? sf.name + " " + sf.versions : sf.versions);
     if (sf.count > 2) {
-      t.setAttribute("title", sf.count + " releases under " +
-        (sf.name || "this run") + ": " + sf.all);
+      withTip(t, sf.count + " releases under " + (sf.name || "this run") + ": " + sf.all, { quiet: true });
     }
     sub2.appendChild(t);
   });
@@ -367,13 +373,12 @@
     mw.appendChild(el("span", { class: "lbl" }, MODELS.length === 1 ? "model" : "models"));
     if (!MODELS.length) mw.appendChild(el("span", { class: "also" }, "none recorded"));
     MODELS.forEach(function (mu) {
-      var card = el("div", {
-        class: "model",
-        title: mu.name + "\n" + num(mu.out) + " output tokens" +
+      var card = withTip(el("div", { class: "model" }),
+        mu.name + "\n" + num(mu.out) + " output tokens" +
           (mu.think ? " (" + num(mu.think) + " thinking)" : "") +
           "\n" + num(mu.ctx) + " tokens of context served" +
-          "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses")
-      });
+          "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses"),
+        { quiet: true });
       card.appendChild(el("div", { class: "n" }, mu.name));
       card.appendChild(el("div", { class: "s" },
         mu.out ? compact(mu.out) + " out · " + pct(mu.share) : "no output recorded"));
@@ -385,11 +390,9 @@
       mw.appendChild(card);
     });
     if (D.statedOnly && D.statedOnly.length) {
-      mw.appendChild(el("span", {
-        class: "also",
-        title: "Named by the transcript's own cost snapshot, but by no response in it — " +
-          "background work, typically. Nothing here can say what they did."
-      }, "also billed: " + D.statedOnly.join(", ")));
+      mw.appendChild(withTip(el("span", { class: "also" }, "also billed: " + D.statedOnly.join(", ")),
+        "Named by the transcript's own cost snapshot, but by no response in it — " +
+          "background work, typically. Nothing here can say what they did."));
     }
     root.appendChild(mw);
   }
@@ -429,10 +432,7 @@
           lg.appendChild(sp);
           return;
         }
-        var b = el("button", {
-          type: "button", class: "sel", "aria-pressed": "false",
-          title: "Show only " + it.label
-        });
+        var b = el("button", { type: "button", class: "sel", "aria-pressed": "false" });
         b.appendChild(sw);
         b.appendChild(document.createTextNode(it.label));
         b.addEventListener("click", function () {
@@ -441,10 +441,14 @@
             var on = c.only === o.key;
             o.node.setAttribute("aria-pressed", on ? "true" : "false");
             o.node.classList.toggle("off", c.only !== null && !on);
-            o.node.title = on ? "Show all series again" : "Show only " + o.label;
           });
           c.redraw();
         });
+        // Registered after the filter's own click handler, so the tip it
+        // re-shows on click already describes the new state.
+        withTip(b, function () {
+          return c.only === it.key ? "Show all series again" : "Show only " + it.label;
+        }, { quiet: true, focus: false });
         buttons.push({ key: it.key, label: it.label, node: b });
         lg.appendChild(b);
       });
@@ -674,9 +678,11 @@
     items.forEach(function (t) {
       // The raw name on hover: display can be a shortened one, and the whole
       // row carries it so there is no thin strip that alone answers "which".
+      // The row is four grid cells, so each carries the tip; only the name
+      // is a stop in the tab order, or a long list costs four per tool.
       var tip = t.name + " — " + num(t.n) + " of " + num(calls) + " " + countWord + "s";
-      list.appendChild(el("div", { class: "nm", title: tip }, t.display));
-      var track = el("div", { class: "track", title: tip });
+      list.appendChild(withTip(el("div", { class: "nm" }, t.display), tip, { quiet: true }));
+      var track = withTip(el("div", { class: "track" }), tip, { quiet: true, focus: false });
       var fill = el("i");
       // Something called once still gets a mark: a hairline is the point of a
       // ranked list's tail. The floor is small enough that it does not make
@@ -684,9 +690,9 @@
       fill.style.width = Math.max(0.8, (t.n / top) * 100) + "%";
       track.appendChild(fill);
       list.appendChild(track);
-      list.appendChild(el("div", { class: "ct", title: tip }, num(t.n)));
-      list.appendChild(el("div", { class: "pc", title: tip },
-        t.share >= 0.01 ? Math.round(t.share * 100) + "%" : "<1%"));
+      list.appendChild(withTip(el("div", { class: "ct" }, num(t.n)), tip, { quiet: true, focus: false }));
+      list.appendChild(withTip(el("div", { class: "pc" },
+        t.share >= 0.01 ? Math.round(t.share * 100) + "%" : "<1%"), tip, { quiet: true, focus: false }));
     });
     box.appendChild(list);
     root.appendChild(box);

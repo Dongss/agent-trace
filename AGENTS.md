@@ -285,6 +285,21 @@ Code that ignores one produces a timeline that looks right and is wrong.
   in words. A chart that changes shape between sessions cannot be compared
   across them, which is why the tool lane is counts per slice at every density.
 
+- **Hover text goes through `tip.js`, never `title`.** The browser's own
+  tooltip waits a second or more, never shows on a touch screen, and in use
+  was not seen at all: a help cursor over a figure led to nothing.
+  `tip.js` and `tip.css` are shared by both pages the way the theme is — one
+  delegated listener for any `data-tip`, `agtraceTip.attach` for a tip worked
+  out when it shows — and draw the charts' tooltip box at once, on keyboard
+  focus too. The box goes under the *text* it describes, starting where the
+  text starts, and above it when there is no room below: under the element,
+  a right-aligned figure's box started a column to its left. A caveat wears
+  the help cursor and a dotted underline; detail that restates what is
+  visible is `quiet`; a tip that only repeats the cell is no tip, so the
+  listing's names and directories get one only when clipped. The theme
+  toggle keeps its `title` on purpose. A test fails on any other `title` in
+  either page.
+
 - **Storage can throw.** Every access to `localStorage` is wrapped: it throws
   in a private window and the page still has to render. The theme cycles
   system → light → dark, because a two-state toggle cannot return to the OS

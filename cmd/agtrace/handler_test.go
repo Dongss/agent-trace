@@ -142,3 +142,21 @@ func TestSessionPageCarriesTheRun(t *testing.T) {
 		}
 	}
 }
+
+// The listing's hover text is the session page's, from the same script, and
+// none of it is the browser's own title tooltip.
+func TestListingUsesTheSharedTips(t *testing.T) {
+	w := get(t, newMux(fixtureRoot(t)), "/")
+	body := w.Body.String()
+	if !strings.Contains(body, "window.agtraceTip = {") {
+		t.Error("the listing does not load tip.js")
+	}
+	// What is left of the listing's hover text is set by its script, on a
+	// name or directory the column cut off.
+	if !strings.Contains(body, `setAttribute("data-tip"`) {
+		t.Error("the listing no longer gives a clipped cell its full text")
+	}
+	if strings.Contains(body, ` title="`) {
+		t.Error("the listing still has a title tooltip in its markup")
+	}
+}

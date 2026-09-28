@@ -27,7 +27,7 @@ import (
 	"github.com/Dongss/agent-trace/internal/timeline"
 )
 
-//go:embed page.html theme.css theme.js
+//go:embed page.html theme.css theme.js tip.css tip.js
 var assets embed.FS
 
 // ThemeCSS and ThemeJS are the palette and the theme toggle, exported so every
@@ -35,6 +35,11 @@ var assets embed.FS
 // its own drifting copy.
 func ThemeCSS() string { return mustAsset("theme.css") }
 func ThemeJS() string  { return mustAsset("theme.js") }
+
+// TipCSS and TipJS are the hover text, shared for the same reason: the listing
+// and the session page show it the same way, from one copy.
+func TipCSS() string { return mustAsset("tip.css") }
+func TipJS() string  { return mustAsset("tip.js") }
 
 func mustAsset(name string) string {
 	b, err := assets.ReadFile(name)
@@ -101,7 +106,10 @@ func Page(run *event.Run, opt Options) ([]byte, error) {
 	}
 	page := strings.Replace(string(tmpl), "/*__AGTRACE_THEME_CSS__*/", ThemeCSS(), 1)
 	page = strings.Replace(page, "/*__AGTRACE_THEME_JS__*/", ThemeJS(), 1)
-	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/"} {
+	page = strings.Replace(page, "/*__AGTRACE_TIP_CSS__*/", TipCSS(), 1)
+	page = strings.Replace(page, "/*__AGTRACE_TIP_JS__*/", TipJS(), 1)
+	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/",
+		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/"} {
 		if strings.Contains(page, marker) {
 			return nil, fmt.Errorf("render: %s was not substituted", marker)
 		}

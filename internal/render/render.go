@@ -27,7 +27,7 @@ import (
 	"github.com/Dongss/agent-trace/internal/timeline"
 )
 
-//go:embed page.html theme.css theme.js
+//go:embed page.html theme.css theme.js tip.css tip.js
 var assets embed.FS
 
 // ThemeCSS and ThemeJS are the palette and the theme toggle, exported so every
@@ -35,6 +35,11 @@ var assets embed.FS
 // its own drifting copy.
 func ThemeCSS() string { return mustAsset("theme.css") }
 func ThemeJS() string  { return mustAsset("theme.js") }
+
+// TipCSS and TipJS are the hover text, shared for the same reason: the listing
+// and the session page show it the same way, from one copy.
+func TipCSS() string { return mustAsset("tip.css") }
+func TipJS() string  { return mustAsset("tip.js") }
 
 func mustAsset(name string) string {
 	b, err := assets.ReadFile(name)
@@ -101,7 +106,10 @@ func Page(run *event.Run, opt Options) ([]byte, error) {
 	}
 	page := strings.Replace(string(tmpl), "/*__AGTRACE_THEME_CSS__*/", ThemeCSS(), 1)
 	page = strings.Replace(page, "/*__AGTRACE_THEME_JS__*/", ThemeJS(), 1)
-	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/"} {
+	page = strings.Replace(page, "/*__AGTRACE_TIP_CSS__*/", TipCSS(), 1)
+	page = strings.Replace(page, "/*__AGTRACE_TIP_JS__*/", TipJS(), 1)
+	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/",
+		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/"} {
 		if strings.Contains(page, marker) {
 			return nil, fmt.Errorf("render: %s was not substituted", marker)
 		}
@@ -134,8 +142,30 @@ type view struct {
 	Outcomes   []countRow `json:"outcomes"`
 	ToolUse    []toolUse  `json:"toolUse"`
 	SkillUse   []toolUse  `json:"skillUse"`
+	Subagents  subagents  `json:"subagents"`
 	Reading    reading    `json:"reading"`
 	Scales     scales     `json:"scales"`
+}
+
+// subagents is the table of agents the session spawned. Every figure in the
+// tiles and charts already includes them; this says how much of each was
+// theirs.
+type subagents struct {
+	Rows []subagentRow `json:"rows"`
+	// Tokens is every token the subagents put through a model, and Of the same
+	// for the whole session, theirs included: a volume, like the tile's.
+	Tokens int `json:"tokens"`
+	Of     int `json:"of"`
+}
+
+type subagentRow struct {
+	Agent     string `json:"agent"` // its type, as the sidecar names it
+	Task      string `json:"task"`
+	Started   string `json:"started"`
+	Ran       string `json:"ran"` // first step to last, wall clock
+	Responses int    `json:"responses"`
+	Tokens    int    `json:"tokens"`
+	Tools     int    `json:"tools"`
 }
 
 type meta struct {
@@ -218,6 +248,9 @@ type toolMark struct {
 	HasDur  bool    `json:"hasDur"`
 	Bytes   int     `json:"bytes"`
 	At      string  `json:"at"`
+	// Agent names the subagent the call ran in, and is "" for the session's
+	// own calls.
+	Agent string `json:"agent"`
 }
 
 type compactMark struct {
@@ -265,6 +298,9 @@ type reading struct {
 	Steps     int  `json:"steps"`
 	Malformed int  `json:"malformed"`
 	Truncated bool `json:"truncated"`
+	// Subagents is how many subagent transcripts were read beside the
+	// session's own, which the path on the page does not show.
+	Subagents int `json:"subagents"`
 }
 
 type scales struct {
@@ -327,7 +363,8 @@ func build(run *event.Run, opt Options) view {
 	}
 
 	v.SkillUse = buildSkillUse(run)
-	v.Stats = buildStats(run, t, clock, v.SkillUse)
+	v.Subagents = buildSubagents(run, t)
+	v.Stats = buildStats(run, t, clock, v.SkillUse, v.Subagents)
 	v.Bins, v.Scales = buildBins(run, clock)
 	v.Tools = buildTools(run, clock)
 	v.Compacts = buildCompacts(run, clock)
@@ -387,10 +424,83 @@ func build(run *event.Run, opt Options) view {
 	if v.SkillUse == nil {
 		v.SkillUse = []toolUse{}
 	}
+	if v.Subagents.Rows == nil {
+		v.Subagents.Rows = []subagentRow{}
+	}
 	return v
 }
 
-func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills []toolUse) []stat {
+// buildSubagents lists the agents the session spawned, in the order they
+// started, with what each spent.
+//
+// In a window, a subagent with no step inside it is left out: the table is of
+// the slice, as every other figure on the page is. Unwindowed, every subagent
+// the session has is listed, one that recorded nothing included — it was
+// spawned, and a row of zeros says so.
+func buildSubagents(run *event.Run, t timeline.Totals) subagents {
+	var out subagents
+	out.Of = volume(t.All)
+	type ordered struct {
+		row   subagentRow
+		first time.Time
+		id    string
+	}
+	var rows []ordered
+	for _, sa := range run.Subagents {
+		a := t.Subagents[sa.ID]
+		if a == nil {
+			a = &timeline.AgentTotals{}
+		}
+		if run.Windowed && a.First.IsZero() && a.Responses == 0 && a.ToolCalls == 0 {
+			continue
+		}
+		r := subagentRow{
+			Agent:     agentLabel(sa),
+			Task:      sa.Description,
+			Started:   "—",
+			Ran:       "—",
+			Responses: a.Responses,
+			Tokens:    volume(a.Usage),
+			Tools:     a.ToolCalls,
+		}
+		if !a.First.IsZero() {
+			r.Started = stampSec(a.First)
+			r.Ran = dur(a.Last.Sub(a.First))
+		}
+		out.Tokens += r.Tokens
+		rows = append(rows, ordered{r, a.First, sa.ID})
+	}
+	// Untimed ones last: nothing says when they ran.
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.first.IsZero() != b.first.IsZero() {
+			return !a.first.IsZero()
+		}
+		if !a.first.Equal(b.first) {
+			return a.first.Before(b.first)
+		}
+		return a.id < b.id
+	})
+	for _, r := range rows {
+		out.Rows = append(out.Rows, r.row)
+	}
+	return out
+}
+
+// agentLabel is what a subagent is called on the page: its type, or its id
+// where no sidecar named one.
+func agentLabel(sa event.Subagent) string {
+	if sa.Type != "" {
+		return sa.Type
+	}
+	return "agent " + short(sa.ID)
+}
+
+// volume is every token a usage put through a model, which is what the Total
+// tokens tile adds up: a measure of volume, not of money.
+func volume(u event.Usage) int { return u.Input + u.CacheRead + u.CacheWrite + u.Output }
+
+func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills []toolUse, subs subagents) []stat {
 	out := []stat{}
 
 	// Every tile is drawn, whatever the run had. A tile that appears only
@@ -403,8 +513,8 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	// to know about it, and the cost beside it reads as the price of that. A
 	// run with no timestamped entry has no span to measure, which is not the
 	// same as one that worked for no time.
-	active := stat{"Active time", "—",
-		fmt.Sprintf("%d %s, %d %s", t.Responses, plural(t.Responses, "response"), t.Prompts, plural(t.Prompts, "prompt"))}
+	active := tile("Active time", "—",
+		fmt.Sprintf("%d %s, %d %s", t.Responses, plural(t.Responses, "response"), t.Prompts, plural(t.Prompts, "prompt")))
 	if clock.Span() > 0 {
 		active.Value = dur(clock.Active())
 	}
@@ -415,7 +525,7 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	// including ones no message here mentions. A windowed view therefore has
 	// no figure to show, and says that rather than looking like a transcript
 	// that stated none.
-	cost := stat{"Cost", "—", "the transcript states none"}
+	cost := tile("Cost", "—", "the transcript states none")
 	switch {
 	case run.Stated != nil:
 		cost.Value = fmt.Sprintf("$%.2f", run.Stated.CostUSD)
@@ -433,33 +543,43 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 		cost.Note = "stated for the session, not for a window"
 	}
 	out = append(out, cost)
+
+	// A subagent's tokens are in every figure here. The total says how much of
+	// it was theirs, because that is the part the session's own transcript
+	// does not show.
+	total := tile("Total tokens", compact(t.All.Input+t.All.CacheRead+t.All.CacheWrite+t.All.Output),
+		"input, cache and output")
+	if n := len(subs.Rows); n > 0 && subs.Tokens > 0 {
+		total.Note = fmt.Sprintf("%s of it in %d %s", compact(subs.Tokens), n, plural(n, "subagent"))
+	}
 	out = append(out,
-		stat{"Total tokens", compact(t.All.Input + t.All.CacheRead + t.All.CacheWrite + t.All.Output),
-			"input, cache and output"},
-		stat{"Input tokens", compact(t.All.Input), "sent fresh, not from cache"},
-		stat{"Output tokens", compact(t.All.Output), fmt.Sprintf("%s of it thinking", compact(t.All.Thinking))},
-		stat{"Cache read", compact(t.All.CacheRead), "context re-read"},
-		stat{"Cache write", compact(t.All.CacheWrite), "paid once, read back later"},
+		total,
+		tile("Input tokens", compact(t.All.Input), "sent fresh, not from cache"),
+		tile("Output tokens", compact(t.All.Output), fmt.Sprintf("%s of it thinking", compact(t.All.Thinking))),
+		tile("Cache read", compact(t.All.CacheRead), "context re-read"),
+		tile("Cache write", compact(t.All.CacheWrite), "paid once, read back later"),
 	)
 	// Compactions closes the run of context figures above rather than opening
 	// the run of activity below: what it reports is the context being cut, not
 	// something the agent did.
-	compactions := stat{"Compactions", fmt.Sprintf("%d", len(run.Compacts)), "the context was never cut"}
+	compactions := tile("Compactions", fmt.Sprintf("%d", len(run.Compacts)), "the context was never cut")
 	if len(run.Compacts) > 0 {
 		compactions.Note = compact(t.DroppedByCompaction) + " tokens dropped"
 	}
-	out = append(out, compactions, stat{"Tool calls", compact(t.ToolCalls), toolNote(t)})
+	out = append(out, compactions, tile("Tool calls", compact(t.ToolCalls), toolNote(t)))
 	calls := 0
 	for _, sk := range skills {
 		calls += sk.N
 	}
-	used := stat{"Skills", compact(calls), "no skills were invoked"}
+	used := tile("Skills", compact(calls), "no skills were invoked")
 	if n := len(skills); n > 0 {
 		used.Note = fmt.Sprintf("across %d %s", n, plural(n, "skill"))
 	}
 	out = append(out, used)
 	return out
 }
+
+func tile(label, value, note string) stat { return stat{Label: label, Value: value, Note: note} }
 
 // buildBins aggregates responses into columns, summing each column's usage.
 // At is the first response in the column, which is when the slice began.
@@ -513,6 +633,10 @@ func buildBins(run *event.Run, clock *timeline.Clock) ([]bin, scales) {
 // somebody opened the timeline.
 func buildTools(run *event.Run, clock *timeline.Clock) []toolMark {
 	var out []toolMark
+	label := map[string]string{}
+	for _, sa := range run.Subagents {
+		label[sa.ID] = agentLabel(sa)
+	}
 	for i := range run.Steps {
 		st := &run.Steps[i]
 		if st.Kind != event.KindTool || st.Tool == nil {
@@ -540,6 +664,12 @@ func buildTools(run *event.Run, clock *timeline.Clock) []toolMark {
 			Outcome: string(tl.Outcome), Detail: tl.Detail,
 			HasDur: tl.HasDuration, Bytes: tl.ResultBytes,
 			At: stampSec(placed),
+		}
+		if st.Agent != "" {
+			m.Agent = label[st.Agent]
+			if m.Agent == "" {
+				m.Agent = "agent " + short(st.Agent)
+			}
 		}
 		if tl.HasDuration {
 			m.Dur = dur(tl.Duration)
@@ -651,7 +781,8 @@ func baseModel(name string) string {
 }
 
 func buildReading(run *event.Run) reading {
-	return reading{Steps: len(run.Steps), Malformed: run.Malformed, Truncated: run.Truncated}
+	return reading{Steps: len(run.Steps), Malformed: run.Malformed, Truncated: run.Truncated,
+		Subagents: len(run.Subagents)}
 }
 
 // toolNote: how long the calls took, and whether any of them failed — the one
@@ -826,6 +957,12 @@ func short(id string) string {
 
 // compact formats a token count the way a reader scans it: 1.3M, not
 // 1,326,072,767. Exact figures live in the tables.
+//
+// From a thousand up. It started at ten thousand, and a bare four-digit
+// figure in a row of 53.5M and 1.6M read as one that had lost its unit.
+// Below a thousand there is nothing to abbreviate; the tile's label is the
+// unit. The page's script formats the same way, so a figure reads the same
+// in a tile as in the heading beside it.
 func compact(n int) string {
 	f := float64(n)
 	switch {
@@ -833,7 +970,7 @@ func compact(n int) string {
 		return trim(f/1e9) + "B"
 	case n >= 1_000_000:
 		return trim(f/1e6) + "M"
-	case n >= 10_000:
+	case n >= 1_000:
 		return trim(f/1e3) + "k"
 	}
 	return fmt.Sprintf("%d", n)

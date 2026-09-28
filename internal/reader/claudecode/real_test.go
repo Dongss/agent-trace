@@ -53,6 +53,25 @@ func TestRealTranscripts(t *testing.T) {
 			t.Errorf("%s: %d malformed lines", s.ID, run.Malformed)
 		}
 
+		// A subagent's steps name an agent the run lists, and none of them is
+		// a prompt: nobody types into a subagent.
+		listed := map[string]bool{}
+		for _, sa := range run.Subagents {
+			listed[sa.ID] = true
+		}
+		for i := range run.Steps {
+			st := &run.Steps[i]
+			if st.Agent == "" {
+				continue
+			}
+			if !listed[st.Agent] {
+				t.Errorf("%s: step %d names agent %q, which the run does not list", s.ID, st.Seq, st.Agent)
+			}
+			if st.Kind == event.KindPrompt {
+				t.Errorf("%s: subagent %s has a prompt %q", s.ID, st.Agent, st.Text)
+			}
+		}
+
 		for i := range run.Steps {
 			st := &run.Steps[i]
 			if st.Kind != event.KindTool {

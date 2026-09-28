@@ -48,9 +48,16 @@ Code that ignores one produces a timeline that looks right and is wrong.
   usage.** One entry per content block — thinking, text, each tool_use — with
   the response's `usage` copied onto all of them. 4,558 assistant entries for
   2,670 responses in one session; adding usage up per entry overstated its
-  tokens by 70%. Usage attaches to the first entry of a `message.id` and is
-  dropped on the rest. `usage.iterations` is deliberately not read: it breaks
-  down totals that are already in the fields beside it.
+  tokens by 70%. Usage attaches to the first entry of a `message.id`, and a
+  later entry can only raise its output. In a session's own file the entries
+  are identical (all 6,801 multi-entry responses surveyed), so this changes
+  nothing there; a subagent's file is written as the response streams, and
+  there the output climbs from a placeholder between entries while the context
+  fields never move. A response no entry gave a `stop_reason` — 121 of 145
+  in subagent files, 6 of 16,524 in sessions' — still has only a floor for
+  its output, and the page shows it unmarked, as decided on 2026-09-28. `usage.iterations` is
+  deliberately not read: it breaks down totals that are already in the fields
+  beside it.
 
 - **Timestamps are not monotonic** — 248 out-of-order pairs in one session. A
   result that predates its call yields *no* duration rather than a negative
@@ -69,7 +76,9 @@ Code that ignores one produces a timeline that looks right and is wrong.
 
 - **Nine entry types carry no timestamp at all**, `cost-state` among them. File
   order is the only total order that always exists, which is what `Step.Seq`
-  records.
+  records — within one file. A subagent's steps are numbered after the
+  session's, so `Order` carries a timestamp forward only within a file and
+  `PlaceBySeq` places a compaction among the session's own steps.
 
 - **A tool call is a pair, and an unpaired one is information.** `tool_use`
   pairs with a later `tool_result` by id. A call with no result did not take
@@ -135,10 +144,24 @@ Code that ignores one produces a timeline that looks right and is wrong.
   single range reports as the run going backwards. `Run.Versions` stays the
   flat union beside it.
 
-- **Sidechains are modelled but unverified.** `Step.Sidechain` and `AgentName`
-  are parsed, but no surveyed transcript contained a subagent (zero
-  `isSidechain` and zero `Task` calls), so the nesting is untested. `agentName`
-  there is the session's own agent, not a subagent's.
+- **A subagent's conversation is a file of its own, and its tokens are the
+  session's.** `<session-uuid>/subagents/agent-<agentId>.jsonl` beside the
+  session's transcript, with a sidecar `agent-<agentId>.meta.json` naming its
+  `agentType` and task. The session links to it only through the spawning
+  call's `toolUseResult.agentId` — an `Agent` call, or a `Skill` that forks one
+  (the tool is `Agent`; none surveyed is called `Task`). Every entry inside
+  carries `isSidechain`, the `agentId` and the parent's `sessionId`; no message
+  or tool id appeared in both files, so adding them counts nothing twice. Left
+  out, a session that fanned out showed 7.6M of the 22.8M tokens it spent.
+  `ReadFile` and `Scan` both read them; a subagent's steps carry `Step.Agent`,
+  and its user-role entries are never prompts — its opening one is the task
+  the parent wrote, shaped exactly like a typed turn. Its tool count and span
+  match the `<tool_uses>` and `<duration_ms>` the parent's task notification
+  states; the notification's `subagent_tokens` is its final context size, a
+  level, and is not read. Nesting (`spawnDepth` above 1) and a subagent's own
+  compaction were never surveyed: the first would be read flat, the second is
+  counted as skipped rather than put among the session's compactions.
+  `agentName` on an entry is the session's own agent, not a subagent's.
 
 - **Transcript shapes drift with releases**, and a real recording cannot be
   committed here — it is the user's prompts, file contents and shell history.
@@ -200,8 +223,10 @@ Code that ignores one produces a timeline that looks right and is wrong.
   second implementation of the same dedup, which is how two answers to one
   question start drifting. It exists because it is 397ms against 1.8s over
   221 MB: a line only reaches the JSON decoder when a substring check says it
-  could matter. The server caches scans by path, size and mtime — 1.9s for the
-  first index load of 911 MB, 45ms after.
+  could matter. The server caches scans by path, size and mtime, of the
+  session's file and each of its subagents' — a background subagent grows its
+  own file while the session's sits still — 1.9s for the first index load of
+  911 MB, 45ms after.
 
 ## The clock
 
@@ -259,6 +284,21 @@ Code that ignores one produces a timeline that looks right and is wrong.
   rather than as an answer, so an empty list, table or lane renders and says so
   in words. A chart that changes shape between sessions cannot be compared
   across them, which is why the tool lane is counts per slice at every density.
+
+- **Hover text goes through `tip.js`, never `title`.** The browser's own
+  tooltip waits a second or more, never shows on a touch screen, and in use
+  was not seen at all: a help cursor over a figure led to nothing.
+  `tip.js` and `tip.css` are shared by both pages the way the theme is — one
+  delegated listener for any `data-tip`, `agtraceTip.attach` for a tip worked
+  out when it shows — and draw the charts' tooltip box at once, on keyboard
+  focus too. The box goes under the *text* it describes, starting where the
+  text starts, and above it when there is no room below: under the element,
+  a right-aligned figure's box started a column to its left. A caveat wears
+  the help cursor and a dotted underline; detail that restates what is
+  visible is `quiet`; a tip that only repeats the cell is no tip, so the
+  listing's names and directories get one only when clipped. The theme
+  toggle keeps its `title` on purpose. A test fails on any other `title` in
+  either page.
 
 - **Storage can throw.** Every access to `localStorage` is wrapped: it throws
   in a private window and the page still has to render. The theme cycles

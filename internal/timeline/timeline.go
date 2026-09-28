@@ -34,6 +34,21 @@ type Totals struct {
 	Prompts int
 
 	DroppedByCompaction int // as the last compaction reports it, cumulatively
+
+	// Subagents is the part of the figures above that each subagent accounts
+	// for, by Subagent.ID. It is a breakdown: everything else in Totals
+	// already includes it.
+	Subagents map[string]*AgentTotals
+}
+
+// AgentTotals is one subagent's share of a run.
+type AgentTotals struct {
+	Usage     event.Usage
+	Responses int
+	ToolCalls int
+	// First and Last are its first and last timestamped step, and are zero
+	// when it has none.
+	First, Last time.Time
 }
 
 // Compute aggregates a run. Usage arrives already deduplicated by the reader,
@@ -44,9 +59,29 @@ func Compute(run *event.Run) Totals {
 		ResponsesByModel: map[string]int{},
 		ToolsByName:      map[string]int{},
 		Outcomes:         map[event.Outcome]int{},
+		Subagents:        map[string]*AgentTotals{},
+	}
+	for _, sa := range run.Subagents {
+		t.Subagents[sa.ID] = &AgentTotals{}
 	}
 	for i := range run.Steps {
 		st := &run.Steps[i]
+		var ag *AgentTotals
+		if st.Agent != "" {
+			ag = t.Subagents[st.Agent]
+			if ag == nil {
+				ag = &AgentTotals{} // a step naming an agent the run does not list
+				t.Subagents[st.Agent] = ag
+			}
+			if st.HasTime {
+				if ag.First.IsZero() || st.At.Before(ag.First) {
+					ag.First = st.At
+				}
+				if st.At.After(ag.Last) {
+					ag.Last = st.At
+				}
+			}
+		}
 		if u := st.Usage; u != nil {
 			t.Responses++
 			t.All = add(t.All, *u)
@@ -56,6 +91,10 @@ func Compute(run *event.Run) Totals {
 			}
 			t.ByModel[model] = add(t.ByModel[model], *u)
 			t.ResponsesByModel[model]++
+			if ag != nil {
+				ag.Usage = add(ag.Usage, *u)
+				ag.Responses++
+			}
 		}
 		switch st.Kind {
 		case event.KindPrompt:
@@ -65,6 +104,9 @@ func Compute(run *event.Run) Totals {
 				continue
 			}
 			t.ToolCalls++
+			if ag != nil {
+				ag.ToolCalls++
+			}
 			t.ToolsByName[st.Tool.Name]++
 			t.Outcomes[st.Tool.Outcome]++
 			if st.Tool.HasDuration {
@@ -100,6 +142,11 @@ func add(a, b event.Usage) event.Usage {
 // permutation. So every step is given an effective time first — an untimed one
 // inherits the last timestamp seen before it, which is where it belongs — and
 // the sort is then a plain lexicographic (time, seq).
+//
+// "The last timestamp before it" is within the step's own file. A subagent's
+// steps follow the session's in Seq, and its first step inheriting the
+// session's last timestamp would be placed at the end of the run, wherever it
+// actually happened.
 func Order(run *event.Run) []int {
 	idx := make([]int, len(run.Steps))
 	for i := range idx {
@@ -108,26 +155,37 @@ func Order(run *event.Run) []int {
 	sort.Slice(idx, func(a, b int) bool { return run.Steps[idx[a]].Seq < run.Steps[idx[b]].Seq })
 
 	eff := make([]time.Time, len(run.Steps))
-	var carry time.Time
+	carry := map[string]time.Time{}
 	for _, i := range idx {
-		if run.Steps[i].HasTime {
-			carry = run.Steps[i].At
+		st := &run.Steps[i]
+		if st.HasTime {
+			carry[st.Agent] = st.At
 		}
-		eff[i] = carry
+		eff[i] = carry[st.Agent]
 	}
-	// Steps before the first timestamp in the file have nothing to inherit;
-	// give them the run's first known time so they sort ahead of it by Seq
-	// rather than landing in year 1.
-	var first time.Time
+	// Steps before the first timestamp in their file have nothing to inherit;
+	// give them the file's first known time, or failing that the run's, so
+	// they sort ahead of it by Seq rather than landing in year 1.
+	first := map[string]time.Time{}
+	var runFirst time.Time
 	for _, i := range idx {
-		if run.Steps[i].HasTime {
-			first = run.Steps[i].At
-			break
+		st := &run.Steps[i]
+		if !st.HasTime {
+			continue
+		}
+		if _, ok := first[st.Agent]; !ok {
+			first[st.Agent] = st.At
+		}
+		if runFirst.IsZero() {
+			runFirst = st.At
 		}
 	}
 	for _, i := range idx {
 		if eff[i].IsZero() {
-			eff[i] = first
+			eff[i] = first[run.Steps[i].Agent]
+		}
+		if eff[i].IsZero() {
+			eff[i] = runFirst
 		}
 	}
 
@@ -146,13 +204,17 @@ func Order(run *event.Run) []int {
 // exists for the compaction boundary: every surveyed one carried a timestamp,
 // but one that does not still has to be plotted, because dropping it would
 // lose the most important event in the file.
+//
+// Its neighbours are the session's own steps only. A compaction is always the
+// session's, and a subagent's steps, numbered after the session's, would
+// otherwise stand in for a neighbour that the session's file does not have.
 func PlaceBySeq(run *event.Run, seq int) (time.Time, bool) {
 	var before, after time.Time
 	var haveBefore, haveAfter bool
 	var beforeSeq, afterSeq int
 	for i := range run.Steps {
 		st := &run.Steps[i]
-		if !st.HasTime {
+		if !st.HasTime || st.Agent != "" {
 			continue
 		}
 		if st.Seq <= seq && (!haveBefore || st.Seq > beforeSeq) {

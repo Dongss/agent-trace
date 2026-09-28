@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>agtrace</title>
 <script>/*__AGTRACE_THEME_JS__*/</script>
+<script>/*__AGTRACE_TIP_JS__*/</script>
 <style>
   /*__AGTRACE_THEME_CSS__*/
+  /*__AGTRACE_TIP_CSS__*/
 
   * { box-sizing: border-box; }
   body {
@@ -82,7 +84,7 @@
   .model .s { font-size:11.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; margin:1px 0 5px; }
   .model .bar { height:3px; border-radius:2px; background:var(--grid); overflow:hidden; }
   .model .bar i { display:block; height:100%; background:var(--s-out); }
-  .models .also { font-size:12px; color:var(--ink-2); cursor:help; }
+  .models .also { font-size:12px; color:var(--ink-2); }
 
   /* The identity block takes the room it needs and wraps inside itself; a
      working directory can be 90 characters long and must not push the controls
@@ -109,6 +111,11 @@
   .stat .label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
   .stat .value { font-size:24px; font-weight:600; letter-spacing:-.02em; margin-top:3px; }
   .stat .note { font-size:12px; color:var(--ink-2); margin-top:2px; }
+  /* A caveat is underlined like an abbreviation, so its hover can be found
+     without being hunted for; tip.css gives it the help cursor. */
+  .also.has-tip { text-decoration:underline dotted; text-underline-offset:2px; }
+  .tools-used th.task { text-align:left; }
+  .tools-used td.task { text-align:left; white-space:normal; min-width:16ch; color:var(--ink-2); }
 
   section.card { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
     padding:16px 16px 10px; margin-top:16px; box-shadow:var(--shadow); }
@@ -138,11 +145,8 @@
   .compact-hit { cursor:default; }
   .tool { cursor:default; }
 
-  .tip { position:absolute; z-index:5; pointer-events:none; min-width:150px; max-width:330px;
-    background:var(--surface-1); color:var(--ink); border:1px solid var(--border); border-radius:8px;
-    padding:8px 10px; font-size:12px; box-shadow:0 2px 6px rgba(0,0,0,.14), 0 12px 32px rgba(0,0,0,.12);
-    opacity:0; transition:opacity .08s; }
-  .tip.on { opacity:1; }
+  /* The box itself is tip.css's, shared with the listing; the rows a
+     chart's tip is made of are this page's. */
   .tip .t { font-weight:600; margin-bottom:4px; word-break:break-word; }
   .tip .r { display:flex; justify-content:space-between; gap:14px; font-variant-numeric:tabular-nums; }
   .tip .r span:first-child { color:var(--ink-2); }
@@ -182,10 +186,14 @@
     return n;
   }
   function num(n) { return (n == null ? "" : n.toLocaleString("en-US")); }
+  // The same rule as compact in render.go, digit for digit: one decimal
+  // under a hundred, none from a hundred up. It used to drop the decimal from
+  // ten up, and a heading said 16M beside a tile saying 15.9M of one figure.
+  function trim(f) { return f >= 100 ? f.toFixed(0) : f.toFixed(1).replace(/\.0$/, ""); }
   function compact(n) {
-    if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
-    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
-    if (n >= 1e4) return Math.round(n / 1e3) + "k";
+    if (n >= 1e9) return trim(n / 1e9) + "B";
+    if (n >= 1e6) return trim(n / 1e6) + "M";
+    if (n >= 1e3) return trim(n / 1e3) + "k";
     return num(n);
   }
   function bytes(n) {
@@ -193,6 +201,10 @@
     if (n >= 1 << 10) return Math.round(n / (1 << 10)) + "K";
     return n + "B";
   }
+
+  // Hover text for anything that is not a chart, from tip.js; see there for
+  // why it is not the browser's title tooltip, and for the options.
+  var withTip = window.agtraceTip.attach;
 
   /* ---------- header, stats ---------- */
   var root = document.getElementById("root");
@@ -212,7 +224,8 @@
     topbar.appendChild(back);
   }
   var pills = el("div", { class: "pills" });
-  if (m.live) pills.appendChild(el("span", { class: "pill live", title: "The last line of the transcript was incomplete" }, "still running"));
+  if (m.live) pills.appendChild(withTip(el("span", { class: "pill live" }, "still running"),
+    "The last line of the transcript was incomplete: the CLI was still writing it."));
   var tg = el("button", { class: "toggle", type: "button" });
   window.agtraceTheme.wire(tg);
   pills.appendChild(tg);
@@ -262,8 +275,7 @@
     if (sub2.childNodes.length) sub2.appendChild(el("span", null, "  ·  "));
     var t = el("span", null, sf.name ? sf.name + " " + sf.versions : sf.versions);
     if (sf.count > 2) {
-      t.setAttribute("title", sf.count + " releases under " +
-        (sf.name || "this run") + ": " + sf.all);
+      withTip(t, sf.count + " releases under " + (sf.name || "this run") + ": " + sf.all, { quiet: true });
     }
     sub2.appendChild(t);
   });
@@ -365,13 +377,12 @@
     mw.appendChild(el("span", { class: "lbl" }, MODELS.length === 1 ? "model" : "models"));
     if (!MODELS.length) mw.appendChild(el("span", { class: "also" }, "none recorded"));
     MODELS.forEach(function (mu) {
-      var card = el("div", {
-        class: "model",
-        title: mu.name + "\n" + num(mu.out) + " output tokens" +
+      var card = withTip(el("div", { class: "model" }),
+        mu.name + "\n" + num(mu.out) + " output tokens" +
           (mu.think ? " (" + num(mu.think) + " thinking)" : "") +
           "\n" + num(mu.ctx) + " tokens of context served" +
-          "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses")
-      });
+          "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses"),
+        { quiet: true });
       card.appendChild(el("div", { class: "n" }, mu.name));
       card.appendChild(el("div", { class: "s" },
         mu.out ? compact(mu.out) + " out · " + pct(mu.share) : "no output recorded"));
@@ -383,11 +394,9 @@
       mw.appendChild(card);
     });
     if (D.statedOnly && D.statedOnly.length) {
-      mw.appendChild(el("span", {
-        class: "also",
-        title: "Named by the transcript's own cost snapshot, but by no response in it — " +
-          "background work, typically. Nothing here can say what they did."
-      }, "also billed: " + D.statedOnly.join(", ")));
+      mw.appendChild(withTip(el("span", { class: "also" }, "also billed: " + D.statedOnly.join(", ")),
+        "Named by the transcript's own cost snapshot, but by no response in it — " +
+          "background work, typically. Nothing here can say what they did."));
     }
     root.appendChild(mw);
   }
@@ -427,10 +436,7 @@
           lg.appendChild(sp);
           return;
         }
-        var b = el("button", {
-          type: "button", class: "sel", "aria-pressed": "false",
-          title: "Show only " + it.label
-        });
+        var b = el("button", { type: "button", class: "sel", "aria-pressed": "false" });
         b.appendChild(sw);
         b.appendChild(document.createTextNode(it.label));
         b.addEventListener("click", function () {
@@ -439,10 +445,14 @@
             var on = c.only === o.key;
             o.node.setAttribute("aria-pressed", on ? "true" : "false");
             o.node.classList.toggle("off", c.only !== null && !on);
-            o.node.title = on ? "Show all series again" : "Show only " + o.label;
           });
           c.redraw();
         });
+        // Registered after the filter's own click handler, so the tip it
+        // re-shows on click already describes the new state.
+        withTip(b, function () {
+          return c.only === it.key ? "Show all series again" : "Show only " + it.label;
+        }, { quiet: true, focus: false });
         buttons.push({ key: it.key, label: it.label, node: b });
         lg.appendChild(b);
       });
@@ -672,9 +682,11 @@
     items.forEach(function (t) {
       // The raw name on hover: display can be a shortened one, and the whole
       // row carries it so there is no thin strip that alone answers "which".
+      // The row is four grid cells, so each carries the tip; only the name
+      // is a stop in the tab order, or a long list costs four per tool.
       var tip = t.name + " — " + num(t.n) + " of " + num(calls) + " " + countWord + "s";
-      list.appendChild(el("div", { class: "nm", title: tip }, t.display));
-      var track = el("div", { class: "track", title: tip });
+      list.appendChild(withTip(el("div", { class: "nm" }, t.display), tip, { quiet: true }));
+      var track = withTip(el("div", { class: "track" }), tip, { quiet: true, focus: false });
       var fill = el("i");
       // Something called once still gets a mark: a hairline is the point of a
       // ranked list's tail. The floor is small enough that it does not make
@@ -682,9 +694,9 @@
       fill.style.width = Math.max(0.8, (t.n / top) * 100) + "%";
       track.appendChild(fill);
       list.appendChild(track);
-      list.appendChild(el("div", { class: "ct", title: tip }, num(t.n)));
-      list.appendChild(el("div", { class: "pc", title: tip },
-        t.share >= 0.01 ? Math.round(t.share * 100) + "%" : "<1%"));
+      list.appendChild(withTip(el("div", { class: "ct" }, num(t.n)), tip, { quiet: true, focus: false }));
+      list.appendChild(withTip(el("div", { class: "pc" },
+        t.share >= 0.01 ? Math.round(t.share * 100) + "%" : "<1%"), tip, { quiet: true, focus: false }));
     });
     box.appendChild(list);
     root.appendChild(box);
@@ -742,6 +754,55 @@
       var empty = el("tr");
       var td = el("td", { colspan: "6", class: "empty-row" }, "No compactions in this run.");
       empty.appendChild(td);
+      body.appendChild(empty);
+    }
+    table.appendChild(body);
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+    root.appendChild(box);
+  })();
+
+  // The agents the session spawned. Their tokens and tool calls are already
+  // in every figure above, because each one's conversation is read from a
+  // transcript of its own beside the session's; this is how much of it was
+  // theirs. It sits under the token charts because that is the question it
+  // answers — in a session that fanned work out, most of the volume is often
+  // here rather than in the session's own file.
+  (function subagentTable() {
+    var S = D.subagents || { rows: [], tokens: 0, of: 0 };
+    var rows = S.rows || [];
+    var box = el("div", { class: "tools-used" });
+    var hd = el("div", { class: "hd" });
+    hd.appendChild(el("h2", null, "Subagents"));
+    hd.appendChild(el("span", { class: "sum" }, rows.length === 0
+      ? "none were spawned"
+      : rows.length + (rows.length === 1 ? " subagent" : " subagents") + " · " +
+        compact(S.tokens) + " of " + compact(S.of) + " tokens" +
+        (S.of ? " (" + pct(S.tokens / S.of) + ")" : "")));
+    box.appendChild(hd);
+
+    var wrap = el("div", { class: "scroll" });
+    var table = el("table");
+    var head = el("tr");
+    ["Agent", "Task", "Started", "Ran", "Responses", "Tokens", "Tool calls"].forEach(function (h) {
+      head.appendChild(el("th", h === "Task" ? { class: "task" } : null, h));
+    });
+    table.appendChild(el("thead")).appendChild(head);
+    var body = el("tbody");
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, r.agent));
+      tr.appendChild(el("td", { class: "task" }, r.task || "—"));
+      tr.appendChild(el("td", null, r.started));
+      tr.appendChild(el("td", null, r.ran));
+      tr.appendChild(el("td", null, num(r.responses)));
+      tr.appendChild(el("td", null, num(r.tokens)));
+      tr.appendChild(el("td", null, num(r.tools)));
+      body.appendChild(tr);
+    });
+    if (!rows.length) {
+      var empty = el("tr");
+      empty.appendChild(el("td", { colspan: "7", class: "empty-row" }, "No subagents in this run."));
       body.appendChild(empty);
     }
     table.appendChild(body);
@@ -1036,9 +1097,10 @@
     var cols = {}, maxN = 0;
     marks.forEach(function (t) {
       var b = Math.max(0, Math.min(N - 1, Math.round(t.x * (N - 1))));
-      var c = cols[b] || (cols[b] = { n: 0, slow: null, first: null, last: null });
+      var c = cols[b] || (cols[b] = { n: 0, sub: 0, slow: null, first: null, last: null });
       c[t.outcome] = (c[t.outcome] || 0) + 1;
       c.n++;
+      if (t.agent) c.sub++;
       // Longest by wall clock, not by drawn width: w is on the compressed
       // clock, so a call that waited through an idle stretch would lose to
       // one that merely ran in a busy one.
@@ -1098,11 +1160,13 @@
       OUTCOME_ORDER.forEach(function (o) {
         if (c[o]) nodes.push(tipRow(o, num(c[o]), STATUS[o] || "--muted"));
       });
+      if (c.sub) nodes.push(tipRow("in subagents", num(c.sub)));
       // The one call worth naming out of the slice, carrying what the
       // per-call hover used to say about it. A slice whose calls all went
       // unpaired has no longest call: an unknown duration is not a short one.
       if (c.slow) {
-        nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "")));
+        nodes.push(el("div", { class: "m" }, "longest here: " + c.slow.name + (c.slow.dur ? " (" + c.slow.dur + ")" : "") +
+          (c.slow.agent ? ", in " + c.slow.agent : "")));
         if (c.slow.brief) nodes.push(el("div", { class: "m" }, c.slow.brief));
         if (c.slow.bytes) nodes.push(tipRow("result", bytes(c.slow.bytes)));
         if (c.slow.detail) nodes.push(el("div", { class: "m" }, c.slow.detail));
@@ -1178,7 +1242,9 @@
     // gone wrong. Everything else this used to explain was either said better
     // where it applies or was commentary nobody needed under every session.
     var lines = [];
-    lines.push(r.steps + " steps read from " + m.path + ".");
+    lines.push(r.steps + " steps read from " + m.path +
+      (r.subagents ? " and the " + (r.subagents === 1 ? "subagent transcript" : r.subagents + " subagent transcripts") +
+        " beside it" : "") + ".");
     if (r.truncated) lines.push("The last line was incomplete: the CLI was still writing this session when it was read.");
     if (r.malformed) lines.push(r.malformed + " line(s) did not parse.");
     var ul = el("ul");

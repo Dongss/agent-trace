@@ -44,6 +44,13 @@ type Run struct {
 	Steps    []Step
 	Compacts []Compact
 
+	// Subagents are the agents the session spawned, in the order they were
+	// read. Claude Code writes each one's conversation to a transcript of its
+	// own beside the session's, and its steps are merged into Steps with
+	// Step.Agent set to its ID, so every total over Steps already includes
+	// them. Compacts are the session's own and never a subagent's.
+	Subagents []Subagent
+
 	// Stated is what the transcript itself claims the run cost, when it says
 	// so. It is authoritative over anything recomputed from Steps: see
 	// Totals.Disagrees.
@@ -120,6 +127,19 @@ type Step struct {
 
 	Sidechain bool   // step belongs to a subagent's own conversation
 	AgentName string // agent the step ran under, when the CLI records one
+	// Agent is the subagent the step ran in, by Subagent.ID, and "" for the
+	// session itself. Seq is unique across the session and its subagents, but
+	// it is file order only within one agent.
+	Agent string
+}
+
+// Subagent is an agent the session spawned — through the Agent tool, or a
+// skill that forks one — read from its own transcript.
+type Subagent struct {
+	ID          string // agentId: what its file is named for and every entry in it carries
+	Type        string // agentType from its sidecar, e.g. "Explore"; "" without one
+	Description string // what it was asked to do, from its sidecar; "" without one
+	Path        string
 }
 
 // Usage is the token cost of one API response.

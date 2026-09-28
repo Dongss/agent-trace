@@ -1,6 +1,7 @@
 package timeline
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -135,6 +136,42 @@ func TestPlaceBySeq(t *testing.T) {
 	}
 	if _, ok := PlaceBySeq(&event.Run{}, 5); ok {
 		t.Error("a run with no timestamps cannot place anything")
+	}
+}
+
+// A subagent's steps are numbered after the session's, so for a compaction at
+// the end of the session's file they are the nearest steps "after" it. They
+// are not its neighbours: the compaction is the session's, and it sits at the
+// session's last timestamp, not at a subagent's.
+func TestPlaceBySeqUsesTheSessionsOwnSteps(t *testing.T) {
+	run := &event.Run{Steps: []event.Step{
+		{Seq: 10, At: at("2026-09-01T10:00:00Z"), HasTime: true},
+		{Seq: 31, At: at("2026-09-01T09:00:00Z"), HasTime: true, Agent: "a1", Sidechain: true},
+	}}
+	got, ok := PlaceBySeq(run, 20)
+	if !ok || !got.Equal(at("2026-09-01T10:00:00Z")) {
+		t.Errorf("placed at %s, want the session's last timestamp", got)
+	}
+}
+
+// An untimed step inherits the last timestamp before it in its own file. The
+// first step of a subagent's file comes after all of the session's in Seq,
+// and inheriting the session's last timestamp would put it at the end of the
+// run, whenever the subagent actually ran.
+func TestOrderCarriesTimeWithinEachFile(t *testing.T) {
+	run := &event.Run{Steps: []event.Step{
+		{Seq: 1, At: at("2026-09-01T10:00:00Z"), HasTime: true},
+		{Seq: 2, At: at("2026-09-01T12:00:00Z"), HasTime: true},
+		{Seq: 3, Agent: "a1"}, // untimed, first in the subagent's file
+		{Seq: 4, At: at("2026-09-01T11:00:00Z"), HasTime: true, Agent: "a1"},
+	}}
+	var seqs []int
+	for _, i := range Order(run) {
+		seqs = append(seqs, run.Steps[i].Seq)
+	}
+	// 3 takes its own file's first time, 11:00, and so sorts ahead of 12:00.
+	if got := fmt.Sprint(seqs); got != "[1 3 4 2]" {
+		t.Errorf("order %s, want [1 3 4 2]", got)
 	}
 }
 

@@ -87,6 +87,8 @@ func newMux(defaultAgent agent.Agent) *http.ServeMux {
 		data := indexData{
 			ThemeCSS: template.CSS(render.ThemeCSS()),
 			ThemeJS:  template.JS(render.ThemeJS()),
+			TipCSS:   template.CSS(render.TipCSS()),
+			TipJS:    template.JS(render.TipJS()),
 			Version:  version.String(),
 			Agent:    a,
 			Agents:   agent.List(),
@@ -395,8 +397,8 @@ func backHref(agentID string, from url.Values) string {
 // totalsCache keeps the per-session scan across requests. Titles and token
 // counts need the whole transcript read, which is 1.6s for the 911 MB on the
 // survey machine — fine once, not on every page load. The key includes size
-// and mtime, so a session that has grown is rescanned and a finished one never
-// is.
+// and mtime, of the session's file and of each of its subagents', so a session
+// that has grown is rescanned and a finished one never is.
 type totalsCache struct {
 	mu sync.Mutex
 	m  map[string]*claudecode.Totals
@@ -409,7 +411,7 @@ func newTotalsCache() *totalsCache {
 func (c *totalsCache) fill(sessions []claudecode.Session) {
 	for i := range sessions {
 		s := &sessions[i]
-		key := fmt.Sprintf("%s|%d|%d", s.Path, s.Size, s.ModTime.UnixNano())
+		key := scanKey(*s)
 
 		c.mu.Lock()
 		hit, ok := c.m[key]
@@ -434,6 +436,15 @@ func (c *totalsCache) fill(sessions []claudecode.Session) {
 		c.m[key] = t
 		c.mu.Unlock()
 	}
+}
+
+func scanKey(s claudecode.Session) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s|%d|%d", s.Path, s.Size, s.ModTime.UnixNano())
+	for _, f := range s.Subagents {
+		fmt.Fprintf(&b, "|%s|%d|%d", f.Path, f.Size, f.ModTime.UnixNano())
+	}
+	return b.String()
 }
 
 // sortKeys is what the listing's script orders by, in the order the headers
@@ -470,6 +481,8 @@ func sortKeys(s claudecode.Session) string {
 type indexData struct {
 	ThemeCSS template.CSS
 	ThemeJS  template.JS
+	TipCSS   template.CSS
+	TipJS    template.JS
 	Version  string
 	Agent    agent.Agent
 	Agents   []agent.Agent
@@ -487,14 +500,6 @@ var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
 			return "—"
 		}
 		return compactInt(s.Totals.Total())
-	},
-	"tokenDetail": func(s claudecode.Session) string {
-		if s.Totals == nil {
-			return "not read"
-		}
-		t := s.Totals.Tokens
-		return fmt.Sprintf("fresh input %d · cache read %d · cache write %d · output %d (thinking %d) · %d responses, %d tool calls",
-			t.Input, t.CacheRead, t.CacheWrite, t.Output, t.Thinking, s.Totals.Responses, s.Totals.ToolCalls)
 	},
 	"cost": func(c *float64) string {
 		if c == nil {
@@ -522,8 +527,10 @@ var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>agtrace</title>
 <script>{{.ThemeJS}}</script>
+<script>{{.TipJS}}</script>
 <style>
 {{.ThemeCSS}}
+{{.TipCSS}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--plane);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
  padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px)}
@@ -592,7 +599,9 @@ td.nt a{color:inherit;text-decoration:none;border-bottom:1px solid var(--border)
 td.nt a:hover{border-bottom-color:currentColor}
 td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink-2)}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--st-critical);margin-right:6px;
- vertical-align:1px}
+ vertical-align:1px;position:relative}
+/* Six pixels is a mark, not a target: the pointer gets a margin round it. */
+.dot::after{content:"";position:absolute;inset:-7px}
 .note{margin-top:16px;color:var(--ink-2);font-size:12px}
 .note p{margin:4px 0}
 .problem{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:16px;color:var(--ink-2)}
@@ -614,9 +623,10 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
 <nav>
   {{- /* An agent with no reader is still a link: clicking it explains why,
          which a hover tooltip cannot do on a touch screen. The dashed, muted
-         style is what says it will not list anything. */ -}}
+         style is what says it will not list anything. Only such an agent gets
+         a tip; on one that lists, it said "ready". */ -}}
   {{range .Agents}}
-    <a href="/?agent={{.ID}}" title="{{.Status}}"
+    <a href="/?agent={{.ID}}"{{if ne .Status "ready"}} data-tip="{{.Status}}" aria-describedby="agtrace-tip"{{end}}
        class="{{if not .Implemented}}off {{end}}{{if eq .ID $.Agent.ID}}on{{end}}">{{.Name}}</a>
   {{end}}
 </nav>
@@ -635,44 +645,43 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
          worth reading off the first screen. Hidden, not dropped by the
          server, so unticking the box is instant and the count can say how
          many were held back. */ -}}
-  <label title="A session whose transcript records no tokens spent. One that was never scanned shows an em dash instead of a figure and is not hidden."><input type="checkbox" id="empty" checked> Hide empty</label>
+  <label><input type="checkbox" id="empty" checked> Hide empty</label>
 </div>
 <div class="count" id="count"></div>
 <div class="scroll">
 <table id="sessions"><thead><tr>
-  <th class="t-nt" title="Two fields, one column: the name is what the CLI calls the session — its agent-name entry — and the title is what the model called it. Often different values, and either can be missing.">Name / title</th>
+  <th class="t-nt">Name / title</th>
   <th data-sort="tokens">Tokens</th><th data-sort="cost">Cost</th>
-  <th data-sort="started" title="The transcript's first timestamp.">Started</th>
+  <th data-sort="started">Started</th>
   <th data-sort="touched">Last touched</th><th data-sort="size">Size</th>
   <th>Working directory</th>
 </tr></thead><tbody>
 {{range .Sessions}}<tr data-s="{{.Title}}|{{.Name}}|{{.CWD}}|{{.ID}}" data-n="{{sortKeys .}}">
   <td class="nt">
-    <div class="nm">{{if live .}}<span class="dot" title="touched in the last two minutes"></span>{{end}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{with .Name}}{{.}}{{else}}{{short .ID}}{{end}}</a></div>
+    <div class="nm">{{if live .}}<span class="dot" data-tip="Touched in the last two minutes: probably still being written."></span>{{end}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{with .Name}}{{.}}{{else}}{{short .ID}}{{end}}</a></div>
     <div class="ti">{{with .Title}}{{.}}{{end}}</div>
   </td>
-  <td title="{{tokenDetail .}}">{{tokens .}}</td>
+  <td>{{tokens .}}</td>
   <td>{{cost .CostUSD}}</td>
   <td>{{started .}}</td>
   <td>{{when .ModTime}}</td>
   <td>{{size .Size}}</td>
-  <td class="cwd" title="{{with .CWD}}{{.}}{{else}}not recorded{{end}}">{{with .CWD}}{{.}}{{else}}(not recorded){{end}}</td>
+  <td class="cwd">{{with .CWD}}{{.}}{{else}}(not recorded){{end}}</td>
 </tr>{{end}}
 </tbody></table>
 </div>
 <script>
 (function () {
   "use strict";
-  // Reveal the full text of a clipped cell on hover, with the browser's own
-  // tooltip. Only cells that were actually cut off get one: titling them all
-  // put a tooltip on rows that were already fully readable. The directory
-  // column carries its title from the template, so it is left out here — a
-  // tooltip of ours on top of that one showed two boxes at once.
+  // Reveal the full text of a clipped cell on hover. Only cells that were
+  // actually cut off get a tip: a box repeating a directory already in full
+  // view word for word, as the template's used to on every row, says
+  // nothing.
   function markClipped() {
-    document.querySelectorAll("#sessions td.nt .nm, #sessions td.nt .ti")
+    document.querySelectorAll("#sessions td.nt .nm, #sessions td.nt .ti, #sessions td.cwd")
       .forEach(function (n) {
-        if (n.scrollWidth > n.clientWidth + 1) n.title = n.textContent.trim();
-        else n.removeAttribute("title");
+        if (n.scrollWidth > n.clientWidth + 1) n.setAttribute("data-tip", n.textContent.trim());
+        else n.removeAttribute("data-tip");
       });
   }
   markClipped();
@@ -815,6 +824,9 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
     // a question the list is answering — the two controls that hold them back
     // are both in view, and either one says what it is doing.
     count.textContent = shown + (shown === 1 ? " session" : " sessions");
+    // A row that was hidden measured nothing when it was last looked at, so
+    // whether its cells are cut off is only known once it is showing.
+    markClipped();
     // Keep the query and the order in the URL so the browser's back button,
     // and a reload, land on the same list. replaceState, so typing does not
     // pile up history.

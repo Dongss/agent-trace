@@ -513,6 +513,27 @@ func TestSkillUseCountsByNameAndIgnoresOtherTools(t *testing.T) {
 // "No compactions" is a fact about a run worth reading. A tile that appears
 // only sometimes makes its absence look like a rendering gap rather than an
 // answer, so the count is always shown and the note carries the meaning.
+// The Turns tile counts the turns the CLI recorded, and names the longest. A
+// transcript that records none shows a dash.
+func TestTurnsTile(t *testing.T) {
+	turns := func(ds ...time.Duration) stat {
+		return turnsTile(timeline.Totals{Turns: ds})
+	}
+	if s := turns(); s.Value != "—" || s.Note != "the transcript records none" {
+		t.Errorf("no turns: %+v", s)
+	}
+	if s := turns(45 * time.Second); s.Value != "1" || s.Note != "took 45.0s" {
+		t.Errorf("one turn: %+v", s)
+	}
+	// Times read as they do everywhere else on the page.
+	if s := turns(40*time.Second, 10*time.Second, 30*time.Second, 20*time.Second); s.Value != "4" || s.Note != "longest 40.0s" {
+		t.Errorf("four turns: %+v", s)
+	}
+	if s := turns(3*time.Second, 95*time.Minute, 50*time.Second); s.Note != "longest 1h35m" {
+		t.Errorf("three turns: %+v", s)
+	}
+}
+
 func TestCompactionsTileIsAlwaysShown(t *testing.T) {
 	find := func(v view) (stat, bool) {
 		for _, s := range v.Stats {

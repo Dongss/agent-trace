@@ -125,12 +125,25 @@ type Step struct {
 
 	Tool *Tool
 
+	// Turn is set on the note the CLI writes as a turn ends, and carries its
+	// own account of the turn.
+	Turn *Turn
+
 	Sidechain bool   // step belongs to a subagent's own conversation
 	AgentName string // agent the step ran under, when the CLI records one
 	// Agent is the subagent the step ran in, by Subagent.ID, and "" for the
 	// session itself. Seq is unique across the session and its subagents, but
 	// it is file order only within one agent.
 	Agent string
+}
+
+// Turn is one turn as the CLI recorded it when it ended: from a message
+// reaching the model to the model stopping to wait. Only the terminal CLI
+// writes these, and from 2.1.258; a session driven from elsewhere, or older,
+// has none, which is not the same as having had no turns.
+type Turn struct {
+	Duration time.Duration // as the CLI measured it, not recomputed
+	Messages int           // entries the turn wrote, by the CLI's count
 }
 
 // Subagent is an agent the session spawned — through the Agent tool, or a

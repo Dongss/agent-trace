@@ -471,6 +471,26 @@ func TestSurfaceWithoutAnEntrypointIsUnnamed(t *testing.T) {
 	}
 }
 
+// The CLI writes a turn_duration entry as each turn ends, with its own
+// measure of the turn. It stays a note, and carries the figures. The values
+// are made up.
+func TestTurnDurationIsRead(t *testing.T) {
+	run := read(t,
+		`{"type":"system","subtype":"turn_duration","uuid":"t1","timestamp":"2026-01-08T10:00:00.000Z","durationMs":42500,"messageCount":12,"isMeta":false}`,
+		`{"type":"system","subtype":"stop_hook_summary","uuid":"t2","timestamp":"2026-01-08T10:00:01.000Z"}`,
+	)
+	if len(run.Steps) != 2 {
+		t.Fatalf("steps %+v", run.Steps)
+	}
+	st := run.Steps[0]
+	if st.Kind != event.KindNote || st.Turn == nil || st.Turn.Duration != 42500*time.Millisecond || st.Turn.Messages != 12 {
+		t.Errorf("turn_duration step %+v turn %+v", st, st.Turn)
+	}
+	if run.Steps[1].Turn != nil {
+		t.Error("a stop-hook note is not a turn")
+	}
+}
+
 func TestSessionMetadata(t *testing.T) {
 	run := read(t,
 		`{"type":"user","uuid":"u1","timestamp":"2026-09-18T10:00:00.000Z","sessionId":"sess-1","cwd":"/w/a","version":"2.1.270","entrypoint":"cli","gitBranch":"main","message":{"role":"user","content":"hi"}}`,

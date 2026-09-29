@@ -359,6 +359,51 @@ func TestOriginDecidesWhereAnEntryStatesIt(t *testing.T) {
 	}
 }
 
+// Typed while the model is working, a message is queued and handed over
+// mid-turn as a queued_command attachment rather than written as a user
+// entry, and it is still a prompt. The same queue carries task notifications
+// and other sessions' messages, which are notes; other attachments are the
+// CLI's own context and are skipped. The shapes are 2.1.231 to 2.1.283's; the
+// values are made up.
+func TestQueuedPromptsCount(t *testing.T) {
+	run := read(t,
+		`{"type":"user","uuid":"u1","timestamp":"2026-01-05T09:00:00.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"please run the migration"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-01-05T09:00:10.000Z","message":{"id":"m1","model":"m","role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"make migrate"}}],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-05T09:01:00.000Z","sessionId":"s","content":"also update the changelog"}`,
+		`{"type":"queue-operation","operation":"remove","timestamp":"2026-01-05T09:02:00.000Z","sessionId":"s","content":"also update the changelog"}`,
+		`{"type":"attachment","uuid":"q1","timestamp":"2026-01-05T09:01:00.000Z","isSidechain":false,"attachment":{"type":"queued_command","prompt":"also update the changelog","commandMode":"prompt","origin":{"kind":"human"},"source_uuid":"x1","timestamp":"2026-01-05T09:01:00.000Z"}}`,
+		`{"type":"attachment","uuid":"q2","timestamp":"2026-01-05T09:02:30.000Z","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>bexample1</task-id>\n<status>completed</status>\n</task-notification>","commandMode":"task-notification","source_uuid":"x2","timestamp":"2026-01-05T09:02:30.000Z"}}`,
+		`{"type":"attachment","uuid":"q3","timestamp":"2026-01-05T09:03:00.000Z","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<agent-message from=\"a0000000000000001\">\n[Subagent hand-back] the report</agent-message>","commandMode":"prompt","origin":{"kind":"peer","from":"a0000000000000001"},"isMeta":false,"source_uuid":"x3","timestamp":"2026-01-05T09:03:00.000Z"}}`,
+		`{"type":"attachment","uuid":"h1","timestamp":"2026-01-05T09:03:01.000Z","attachment":{"type":"hook_success","hookName":"SessionStart"}}`,
+		`{"type":"tool_result_placeholder_never_seen"}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-01-05T09:03:10.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"ok"}]}}`,
+	)
+	var prompts []string
+	notes := map[string]bool{}
+	for i := range run.Steps {
+		switch st := &run.Steps[i]; st.Kind {
+		case event.KindPrompt:
+			prompts = append(prompts, st.Text)
+			if st.UUID == "q1" && (!st.HasTime || st.At.Format("15:04:05") != "09:01:00") {
+				t.Errorf("the queued prompt is at %v, want when it was typed", st.At)
+			}
+		case event.KindNote:
+			notes[st.UUID] = st.HasTime
+		}
+	}
+	if len(prompts) != 2 || prompts[0] != "please run the migration" || prompts[1] != "also update the changelog" {
+		t.Errorf("prompts %q, want the typed turn and the queued one", prompts)
+	}
+	for _, id := range []string{"q2", "q3"} {
+		if has, ok := notes[id]; !ok || !has {
+			t.Errorf("queued entry %s: not a timed note", id)
+		}
+	}
+	if n := run.Skipped["attachment"]; n != 1 {
+		t.Errorf("skipped attachments %d, want the hook notice alone", n)
+	}
+}
+
 // Paths are shortened for display wherever they appear, including inside a
 // tool's arguments: a column should not spend a third of its width on a prefix
 // every row shares.

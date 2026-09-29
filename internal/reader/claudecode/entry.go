@@ -46,6 +46,10 @@ type entry struct {
 
 	Message *message `json:"message"`
 
+	// attachment entries: context the CLI hands the model outside a user
+	// turn. Only the queued_command kind is read; see parser.attachment.
+	Attachment *attachment `json:"attachment"`
+
 	// Tool result side.
 	ToolUseResult           json.RawMessage `json:"toolUseResult"`
 	SourceToolAssistantUUID string          `json:"sourceToolAssistantUUID"`
@@ -73,6 +77,17 @@ type entry struct {
 
 type origin struct {
 	Kind string `json:"kind"`
+}
+
+// attachment is the part of an attachment entry this reader uses. A queued
+// command carries the text as it was typed or sent, what kind of thing it is
+// (commandMode "prompt" or "task-notification"), and, like a user entry, who
+// it came from.
+type attachment struct {
+	Type        string          `json:"type"`
+	Prompt      json.RawMessage `json:"prompt"` // a string on every one surveyed
+	CommandMode string          `json:"commandMode"`
+	Origin      *origin         `json:"origin"`
 }
 
 type message struct {

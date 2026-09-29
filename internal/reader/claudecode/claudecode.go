@@ -242,6 +242,8 @@ func (p *parser) line(seq int, s string) error {
 		if e.AgentName != "" {
 			p.run.AgentName = e.AgentName
 		}
+	case "attachment":
+		p.attachment(seq, &e)
 	default:
 		p.run.Skipped[e.Type]++
 	}
@@ -400,6 +402,41 @@ func (p *parser) userText(seq int, e *entry, text string, typed bool) {
 	st := p.base(seq, e, kind)
 	st.Text = textfmt.Clip(text, p.opt.PreviewRunes)
 	p.run.Steps = append(p.run.Steps, st)
+}
+
+// attachment reads the one kind of attachment entry that can be a prompt.
+//
+// Something typed while the model is working does not become a user entry. It
+// is queued — a queue-operation enqueue, then a remove — and handed to the
+// model mid-turn as an attachment of type queued_command, whose prompt is the
+// text as typed and whose timestamp is when it was typed. 97 on the survey
+// machine, 49 of them in one session, and not one also written as a user
+// entry: the eleven whose text a user entry repeats were a short word typed
+// again, one to twenty-four days apart. Left unread, a session steered
+// from the side while it worked showed a fraction of its prompts.
+//
+// The same queue carries task notifications (1,311, commandMode
+// "task-notification", no origin) and messages from other sessions (origin
+// "peer"), so the rule is a user entry's: the origin decides where there is
+// one, and where there is none only a prompt-mode command a person could have
+// typed counts. Those that are not prompts are notes, which keeps their
+// moment on the clock as the user-entry form of the same notice already does.
+// Every other attachment type is context the CLI injects, and is skipped.
+func (p *parser) attachment(seq int, e *entry) {
+	a := e.Attachment
+	if a == nil || a.Type != "queued_command" {
+		p.run.Skipped["attachment"]++
+		return
+	}
+	var text string
+	if json.Unmarshal(a.Prompt, &text) != nil {
+		text = firstText(a.Prompt) // a block array, should a release send one
+	}
+	typed := a.CommandMode == "prompt" && typedByUser(text)
+	if a.Origin != nil && a.Origin.Kind != "" {
+		typed = a.Origin.Kind == "human"
+	}
+	p.userText(seq, e, text, typed)
 }
 
 // cliWrappers open the user-role entries Claude Code writes itself: a slash

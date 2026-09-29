@@ -211,6 +211,17 @@ Code that ignores one produces a timeline that looks right and is wrong.
   counted as skipped rather than put among the session's compactions.
   `agentName` on an entry is the session's own agent, not a subagent's.
 
+- **A turn is recorded only by the terminal CLI.** `system/turn_duration`
+  (`durationMs`, `messageCount`) is written as each turn ends, from 2.1.258,
+  and only under `entrypoint` `cli`: all 31 sessions carrying one on the
+  survey machine were `cli`, and none of the 9 `sdk-cli` or 5 `claude-vscode`
+  sessions on the same releases had any. Where it is written it is one per
+  finished turn — 24 of those 31 sessions match their `end_turn` responses
+  exactly, the rest within four. So the Turns tile counts turns finished, as
+  the CLI measured them, and shows a dash where the entry never appears
+  rather than a zero. A subagent's turns, should it ever write one, are not
+  the session's: it works inside one of them.
+
 - **Transcript shapes drift with releases**, and a real recording cannot be
   committed here — it is the user's prompts, file contents and shell history.
   The tests carry constructed transcripts reproducing surveyed shapes, plus

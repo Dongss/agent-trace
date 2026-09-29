@@ -176,11 +176,12 @@ func TestEveryTileIsDrawn(t *testing.T) {
 	}
 	want := []string{"Active time", "Cost", "Total tokens", "Input tokens",
 		"Output tokens", "Cache read", "Cache write", "Compactions",
-		"Tool calls", "Skills"}
+		"Turns", "Tool calls", "Skills"}
 	if !slices.Equal(labels, want) {
 		t.Fatalf("tiles = %v, want %v", labels, want)
 	}
-	for _, l := range []string{"Active time", "Cost"} {
+	// A transcript with no turn records has had turns it does not describe.
+	for _, l := range []string{"Active time", "Cost", "Turns"} {
 		if byLabel[l].Value != "—" {
 			t.Errorf("%s = %q with nothing recorded, want an em dash", l, byLabel[l].Value)
 		}

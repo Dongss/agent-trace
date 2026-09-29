@@ -203,6 +203,21 @@ func TestOrderSortsByTimeThenFileOrder(t *testing.T) {
 	}
 }
 
+// A session's turns are its own. A subagent works inside one of them, and a
+// turn it recorded would count the same stretch of work twice.
+func TestTurnsAreTheSessionsOwn(t *testing.T) {
+	run := &event.Run{Steps: []event.Step{
+		{Seq: 1, Kind: event.KindNote, Turn: &event.Turn{Duration: 30 * time.Second}},
+		{Seq: 2, Kind: event.KindNote, Turn: &event.Turn{Duration: 5 * time.Second}, Agent: "a1", Sidechain: true},
+		{Seq: 3, Kind: event.KindNote, Turn: &event.Turn{Duration: 90 * time.Second}},
+		{Seq: 4, Kind: event.KindNote, Text: "stop hooks ran"},
+	}}
+	got := Compute(run).Turns
+	if len(got) != 2 || got[0] != 30*time.Second || got[1] != 90*time.Second {
+		t.Errorf("turns %v, want the session's two in file order", got)
+	}
+}
+
 func TestComputeTotals(t *testing.T) {
 	run := &event.Run{
 		Steps: []event.Step{

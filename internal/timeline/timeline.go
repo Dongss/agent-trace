@@ -33,6 +33,12 @@ type Totals struct {
 
 	Prompts int
 
+	// Turns is what each of the session's turns took, as the CLI recorded it
+	// when the turn ended, in file order. A subagent's turns are not the
+	// session's: each runs inside one of them. Empty where the CLI records
+	// none, which is not zero turns; see event.Turn.
+	Turns []time.Duration
+
 	DroppedByCompaction int // as the last compaction reports it, cumulatively
 
 	// Subagents is the part of the figures above that each subagent accounts
@@ -99,6 +105,10 @@ func Compute(run *event.Run) Totals {
 		switch st.Kind {
 		case event.KindPrompt:
 			t.Prompts++
+		case event.KindNote:
+			if st.Turn != nil && st.Agent == "" {
+				t.Turns = append(t.Turns, st.Turn.Duration)
+			}
 		case event.KindTool:
 			if st.Tool == nil {
 				continue

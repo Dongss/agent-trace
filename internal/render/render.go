@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -566,7 +567,7 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	if len(run.Compacts) > 0 {
 		compactions.Note = compact(t.DroppedByCompaction) + " tokens dropped"
 	}
-	out = append(out, compactions, tile("Tool calls", compact(t.ToolCalls), toolNote(t)))
+	out = append(out, compactions, turnsTile(t), tile("Tool calls", compact(t.ToolCalls), toolNote(t)))
 	calls := 0
 	for _, sk := range skills {
 		calls += sk.N
@@ -580,6 +581,30 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 }
 
 func tile(label, value, note string) stat { return stat{Label: label, Value: value, Note: note} }
+
+// turnsTile opens the run of activity tiles: a turn is the coarsest unit of
+// what the agent did, and the tool calls and skills after it happen inside
+// one. The figures are the CLI's own, written as each turn ended, so the
+// count is of turns finished and the time is as it measured it.
+//
+// The note is the longest turn, which is usually the stretch worth looking
+// into. A median beside it was measured not to fit the tile's width in any
+// wording short of jargon, and a wrapped note leaves the whole row taller
+// than the one above; a typical turn is roughly Active time over the count.
+// A transcript that records no turns shows a dash: only the terminal CLI
+// writes them, so an editor's or an SDK's session has had turns and says
+// nothing about them.
+func turnsTile(t timeline.Totals) stat {
+	n := len(t.Turns)
+	if n == 0 {
+		return tile("Turns", "—", "the transcript records none")
+	}
+	longest := slices.Max(t.Turns)
+	if n == 1 {
+		return tile("Turns", "1", "took "+dur(longest))
+	}
+	return tile("Turns", compact(n), "longest "+dur(longest))
+}
 
 // buildBins aggregates responses into columns, summing each column's usage.
 // At is the first response in the column, which is when the slice began.

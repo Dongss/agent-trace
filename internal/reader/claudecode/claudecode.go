@@ -594,6 +594,12 @@ func (p *parser) system(seq int, e *entry) {
 	case "turn_duration", "local_command", "stop_hook_summary":
 		st := p.base(seq, e, event.KindNote)
 		st.Text = textfmt.Clip(noteText(e), p.opt.PreviewRunes)
+		if e.Subtype == "turn_duration" {
+			st.Turn = &event.Turn{
+				Duration: time.Duration(e.DurationMs) * time.Millisecond,
+				Messages: e.MessageCount,
+			}
+		}
 		p.run.Steps = append(p.run.Steps, st)
 	default:
 		p.run.Skipped["system/"+e.Subtype]++

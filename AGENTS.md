@@ -17,6 +17,44 @@ go build -o agtrace ./cmd/agtrace
 Claude Code is the only reader so far. Codex, Cursor and Qwen Code have been
 surveyed but not implemented.
 
+## Nothing real leaves the machine
+
+This is the one rule nothing is traded against. The repository is public, and
+a transcript is somebody's work: their projects, their prompts, their files,
+their hours. None of it goes into anything published — a commit's message or
+its content, a branch or tag name, a pull request's or an issue's title,
+description or comment, a review comment, a release note.
+
+Out, always:
+
+- The name of any project, repository, directory or product found on the
+  machine other than agent-trace itself: the user's own, and third-party ones
+  installed there, a plugin or an MCP server, alike.
+- Paths, user and account names, email addresses, host names, beyond the
+  repository's own owner and URL.
+- Identifiers from a transcript — session, agent, message, tool-use, task,
+  request and entry ids — whole or as a prefix.
+- Anything written in a transcript — prompts, replies, titles, tool arguments
+  and results, file contents, error text — whole, cut short, paraphrased or
+  translated. A word the user typed is their prompt, not an example.
+- Timestamps from a transcript.
+
+In, because they identify nobody: counts, ratios, sizes and durations measured
+on a survey ("97 across 11 sessions", "6,801 of 6,801"); CLI release numbers;
+public model and product names; the names of entry types and fields, which are
+the format being read.
+
+A test fixture reproduces a surveyed shape with made-up values — text, ids and
+times — never a real line copied and edited. A session a pull request talks
+about is "one session" or "session A", never its id or its directory.
+
+Check before anything is pushed or posted, not after. A pull request's or an
+issue's description keeps every earlier revision publicly readable until each
+is deleted by hand, and a commit once pushed stays reachable from the pull
+request that carried it after any force-push. The commits of #15 and #16
+still carry some of the above in the repository's history; the files were
+cleaned afterwards.
+
 ## Layout
 
 ```

@@ -154,7 +154,17 @@ Code that ignores one produces a timeline that looks right and is wrong.
   command surveyed carried `human`. Without an origin a slash command is not
   a prompt even when it expands into one, the expansion being a meta entry of
   its own; so a session driven by one typed skill read as 0 prompts. One entry
-  is at most one prompt, whatever blocks carry it.
+  is at most one prompt, whatever blocks carry it. And a prompt typed while
+  the model works is not a user entry at all: it is queued (`queue-operation`
+  enqueue, then remove) and handed over mid-turn as an `attachment` of type
+  `queued_command`, `commandMode` "prompt", carrying the same `origin` and
+  the moment it was typed. 97 on the survey machine, 49 in one session, and
+  none also written as a user entry — the eleven whose text one repeats were a
+  short word typed again days apart, so nothing needs deduplicating. The
+  same rule decides it, so a task notification (`commandMode`
+  "task-notification", no origin) or another session's message (`origin`
+  "peer") queued the same way is a note. Other attachment types are the CLI's
+  own context and are skipped.
 
 - **A synthetic message is not a response.** `"model":"<synthetic>"` marks one
   the CLI wrote itself — an API error, a timeout, "Prompt is too long" — with

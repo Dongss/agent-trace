@@ -591,15 +591,15 @@ func statNamed(v view, label string) stat {
 func TestSubagentsAreTabulatedAndCalledOut(t *testing.T) {
 	run := sampleRun()
 	run.Subagents = []event.Subagent{
-		{ID: "a7fc360f4cf5c9af5", Type: "Explore", Description: "Survey things"},
+		{ID: "a0000000000000001", Type: "Explore", Description: "Find the parser"},
 		{ID: "b0"}, // no sidecar: named by its id
 	}
 	run.Steps = append(run.Steps,
 		event.Step{Seq: 20, Kind: event.KindAssistant, At: at("2026-09-18T10:05:00Z"), HasTime: true,
-			Agent: "a7fc360f4cf5c9af5", Sidechain: true, Model: "claude-opus-5",
+			Agent: "a0000000000000001", Sidechain: true, Model: "claude-opus-5",
 			Usage: &event.Usage{Input: 2, CacheWrite: 23000, Output: 8}},
 		event.Step{Seq: 21, Kind: event.KindTool, At: at("2026-09-18T10:06:00Z"), HasTime: true,
-			Agent: "a7fc360f4cf5c9af5", Sidechain: true,
+			Agent: "a0000000000000001", Sidechain: true,
 			Tool: &event.Tool{ID: "s1", Name: "Read", Outcome: event.OutcomeOK, Started: at("2026-09-18T10:06:00Z")}},
 		event.Step{Seq: 30, Kind: event.KindAssistant, At: at("2026-09-18T10:02:00Z"), HasTime: true,
 			Agent: "b0", Sidechain: true, Model: "claude-opus-5",
@@ -612,7 +612,7 @@ func TestSubagentsAreTabulatedAndCalledOut(t *testing.T) {
 		t.Fatalf("rows %+v", rows)
 	}
 	// In the order they started, not the order they were read.
-	if rows[0].Agent != "agent b0" || rows[1].Agent != "Explore" || rows[1].Task != "Survey things" {
+	if rows[0].Agent != "agent b0" || rows[1].Agent != "Explore" || rows[1].Task != "Find the parser" {
 		t.Errorf("rows %+v, want b0 first by time and each named", rows)
 	}
 	if r := rows[1]; r.Tokens != 2+23000+8 || r.Tools != 1 || r.Ran != "1m0s" {

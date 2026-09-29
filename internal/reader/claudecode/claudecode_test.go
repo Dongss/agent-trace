@@ -295,7 +295,7 @@ func TestOnlyRealTurnsCountAsPrompts(t *testing.T) {
 		`{"type":"user","uuid":"u8","timestamp":"2026-09-18T10:00:07.000Z","message":{"role":"user","content":"<bash-input>pwd</bash-input>"}}`,
 		`{"type":"user","uuid":"u9","timestamp":"2026-09-18T10:00:08.000Z","message":{"role":"user","content":"<bash-stdout>/tmp</bash-stdout><bash-stderr></bash-stderr>"}}`,
 		`{"type":"user","uuid":"u10","timestamp":"2026-09-18T10:00:09.000Z","message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}}`,
-		`{"type":"user","uuid":"u11","timestamp":"2026-09-18T10:00:10.000Z","isMeta":true,"message":{"role":"user","content":"[Image: original 2880x1620, displayed at 2000x1125.]"}}`,
+		`{"type":"user","uuid":"u11","timestamp":"2026-09-18T10:00:10.000Z","isMeta":true,"message":{"role":"user","content":"[Image: original 1600x900, displayed at 1600x900.]"}}`,
 		`{"type":"user","uuid":"u12","timestamp":"2026-09-18T10:00:11.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}`,
 		// Editor context beside what was typed, and a message typed as two
 		// blocks: one entry, one prompt.
@@ -329,17 +329,18 @@ func TestOnlyRealTurnsCountAsPrompts(t *testing.T) {
 // by typing its slash command is a prompt: without it a session driven by one
 // reads as responses to nothing. A /loop firing is written like the /loop
 // somebody typed but carries no origin, so it stays a note, as does a task
-// notification, which names itself. The shapes are from 2.1.281 and 2.1.283.
+// notification, which names itself. The shapes are from 2.1.281 and 2.1.283;
+// the values are made up.
 func TestOriginDecidesWhereAnEntryStatesIt(t *testing.T) {
 	run := read(t,
 		// Local commands carry no origin and reach no model.
-		`{"type":"user","uuid":"u1","timestamp":"2026-09-24T07:27:48.000Z","version":"2.1.281","message":{"role":"user","content":"<command-name>/reload-plugins</command-name>\n            <command-message>reload-plugins</command-message>\n            <command-args></command-args>"}}`,
-		`{"type":"user","uuid":"u2","timestamp":"2026-09-24T07:28:20.000Z","version":"2.1.281","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>claude-hud:setup</command-message>\n<command-name>/claude-hud:setup</command-name>"}}`,
+		`{"type":"user","uuid":"u1","timestamp":"2026-01-06T10:27:48.000Z","version":"2.1.281","message":{"role":"user","content":"<command-name>/reload-plugins</command-name>\n            <command-message>reload-plugins</command-message>\n            <command-args></command-args>"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-01-06T10:28:20.000Z","version":"2.1.281","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>example-skill:setup</command-message>\n<command-name>/example-skill:setup</command-name>"}}`,
 		// The skill's expansion is a meta entry of its own and adds nothing.
-		`{"type":"user","uuid":"u3","timestamp":"2026-09-24T07:28:20.000Z","version":"2.1.281","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"# Setup\n\nConfigure the status line."}]}}`,
-		`{"type":"user","uuid":"u4","timestamp":"2026-09-28T02:02:01.000Z","version":"2.1.283","message":{"role":"user","content":"<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args>check the build</command-args>"}}`,
-		`{"type":"user","uuid":"u5","timestamp":"2026-09-28T02:03:00.000Z","version":"2.1.283","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}}`,
-		`{"type":"user","uuid":"u6","timestamp":"2026-09-28T02:04:00.000Z","version":"2.1.283","origin":{"kind":"human"},"message":{"role":"user","content":"ship it"}}`,
+		`{"type":"user","uuid":"u3","timestamp":"2026-01-06T10:28:20.000Z","version":"2.1.281","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"# Setup\n\nConfigure the status line."}]}}`,
+		`{"type":"user","uuid":"u4","timestamp":"2026-01-06T11:02:01.000Z","version":"2.1.283","message":{"role":"user","content":"<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args>check the build</command-args>"}}`,
+		`{"type":"user","uuid":"u5","timestamp":"2026-01-06T11:03:00.000Z","version":"2.1.283","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}}`,
+		`{"type":"user","uuid":"u6","timestamp":"2026-01-06T11:04:00.000Z","version":"2.1.283","origin":{"kind":"human"},"message":{"role":"user","content":"ship it"}}`,
 	)
 	var prompts []string
 	var notes int
@@ -351,7 +352,7 @@ func TestOriginDecidesWhereAnEntryStatesIt(t *testing.T) {
 			notes++
 		}
 	}
-	if len(prompts) != 2 || !strings.Contains(prompts[0], "/claude-hud:setup") || prompts[1] != "ship it" {
+	if len(prompts) != 2 || !strings.Contains(prompts[0], "/example-skill:setup") || prompts[1] != "ship it" {
 		t.Errorf("prompts %q, want the typed skill command and the typed message", prompts)
 	}
 	if notes != 3 {

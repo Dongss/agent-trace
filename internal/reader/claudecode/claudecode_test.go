@@ -272,6 +272,9 @@ func TestCostStateLastSnapshotWins(t *testing.T) {
 	if got := run.Stated.ByModel["m"].Output; got != 20 {
 		t.Errorf("stated output %d, want 20", got)
 	}
+	if got := run.Stated.ByModel["m"].CostUSD; got != 9.25 {
+		t.Errorf("stated cost of m = %v, want 9.25", got)
+	}
 	if run.Stated.ToolDur != 5*time.Second {
 		t.Errorf("tool duration %v", run.Stated.ToolDur)
 	}

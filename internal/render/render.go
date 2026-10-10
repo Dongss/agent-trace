@@ -137,15 +137,19 @@ type view struct {
 	Quick      []Range       `json:"quick"`
 	ModelsUsed []modelUse    `json:"modelsUsed"`
 	// StatedOnly are models the cost snapshot names that no response in the
-	// transcript does — background work, typically. They are listed apart
-	// because nothing here can say what they did.
-	StatedOnly []string   `json:"statedOnly"`
-	Outcomes   []countRow `json:"outcomes"`
-	ToolUse    []toolUse  `json:"toolUse"`
-	SkillUse   []toolUse  `json:"skillUse"`
-	Subagents  subagents  `json:"subagents"`
-	Reading    reading    `json:"reading"`
-	Scales     scales     `json:"scales"`
+	// transcript does — background work, typically. They are listed apart,
+	// with what the snapshot says they cost, because nothing here can say
+	// what they did.
+	StatedOnly []statedCost `json:"statedOnly"`
+	// CostScope is what every stated cost on the page covers, worded as the
+	// Cost tile words it, and "" where this view states no cost at all.
+	CostScope string     `json:"costScope"`
+	Outcomes  []countRow `json:"outcomes"`
+	ToolUse   []toolUse  `json:"toolUse"`
+	SkillUse  []toolUse  `json:"skillUse"`
+	Subagents subagents  `json:"subagents"`
+	Reading   reading    `json:"reading"`
+	Scales    scales     `json:"scales"`
 }
 
 // subagents is the table of agents the session spawned. Every figure in the
@@ -209,6 +213,23 @@ type modelUse struct {
 	Thinking  int     `json:"think"`
 	Responses int     `json:"responses"`
 	Share     float64 `json:"share"`
+	// Stated is what the cost snapshot says this model cost, under each name
+	// the snapshot gave it, costliest first. It is empty where the snapshot
+	// names the model nowhere, and where there is no snapshot. The page shows
+	// only Cost, so it stays out of the page's data.
+	Stated []statedCost `json:"-"`
+	// Cost adds up Stated; "" where Stated is empty. A model can be stated
+	// under two names, claude-opus-5 and claude-opus-5[1m], and its tokens
+	// above cover both, because the messages name the model without the
+	// variant.
+	Cost string `json:"cost"`
+}
+
+// statedCost is one model as the cost snapshot names it, and what the
+// snapshot says it cost.
+type statedCost struct {
+	Name string `json:"name"`
+	Cost string `json:"cost"`
 }
 
 type stat struct {
@@ -365,7 +386,12 @@ func build(run *event.Run, opt Options) view {
 
 	v.SkillUse = buildSkillUse(run)
 	v.Subagents = buildSubagents(run, t)
-	v.Stats = buildStats(run, t, clock, v.SkillUse, v.Subagents)
+	// The models come first because the Cost tile's note depends on them: a
+	// snapshot that names no cost for a model the session used does not cover
+	// the whole session, whatever else is true of it.
+	v.ModelsUsed, v.StatedOnly = buildModelsUsed(run, t)
+	v.CostScope = statedScope(run, v.ModelsUsed)
+	v.Stats = buildStats(run, t, clock, v.SkillUse, v.Subagents, v.CostScope)
 	v.Bins, v.Scales = buildBins(run, clock)
 	v.Tools = buildTools(run, clock)
 	v.Compacts = buildCompacts(run, clock)
@@ -377,7 +403,6 @@ func build(run *event.Run, opt Options) view {
 		v.Ticks = append(v.Ticks, tick{X: tk.At, Label: tk.T.Local().Format("Jan 2 15:04")})
 	}
 
-	v.ModelsUsed, v.StatedOnly = buildModelsUsed(run, t)
 	v.ToolUse = buildToolUse(t)
 	for _, o := range []event.Outcome{event.OutcomeOK, event.OutcomeError, event.OutcomeDenied, event.OutcomeInterrupted, event.OutcomeUnpaired} {
 		if n := t.Outcomes[o]; n > 0 {
@@ -414,7 +439,7 @@ func build(run *event.Run, opt Options) view {
 		v.ModelsUsed = []modelUse{}
 	}
 	if v.StatedOnly == nil {
-		v.StatedOnly = []string{}
+		v.StatedOnly = []statedCost{}
 	}
 	if v.Outcomes == nil {
 		v.Outcomes = []countRow{}
@@ -501,7 +526,7 @@ func agentLabel(sa event.Subagent) string {
 // tokens tile adds up: a measure of volume, not of money.
 func volume(u event.Usage) int { return u.Input + u.CacheRead + u.CacheWrite + u.Output }
 
-func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills []toolUse, subs subagents) []stat {
+func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills []toolUse, subs subagents, costScope string) []stat {
 	out := []stat{}
 
 	// Every tile is drawn, whatever the run had. A tile that appears only
@@ -529,17 +554,8 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 	cost := tile("Cost", "—", "the transcript states none")
 	switch {
 	case run.Stated != nil:
-		cost.Value = fmt.Sprintf("$%.2f", run.Stated.CostUSD)
-		switch {
-		case run.Stated.UnknownModelCost:
-			cost.Note = "the CLI calls this figure incomplete"
-		case run.Truncated:
-			// The snapshot is written when a sitting ends, so in a session
-			// still being written the figure stops at the last exit.
-			cost.Note = "as of the last exit, not this sitting"
-		default:
-			cost.Note = "the whole session"
-		}
+		cost.Value = usd(run.Stated.CostUSD)
+		cost.Note = costScope
 	case run.Windowed:
 		cost.Note = "stated for the session, not for a window"
 	}
@@ -581,6 +597,52 @@ func buildStats(run *event.Run, t timeline.Totals, clock *timeline.Clock, skills
 }
 
 func tile(label, value, note string) stat { return stat{Label: label, Value: value, Note: note} }
+
+// statedScope is what the transcript's stated cost covers, for the Cost tile
+// and for every per-model figure in the model strip, so the two cannot
+// describe one snapshot two ways. It is "" where the view states no cost.
+//
+// A snapshot can name no cost for a model the session used, though every
+// response of that model came before it: 3 of 55 sessions surveyed, 205
+// responses in one. Its total is the sum of the models it does name — in all
+// 204 snapshots — so that model's cost is in no figure on the page, and the
+// note says so rather than "the whole session". It says it in few enough
+// words to keep the tile one line high beside its neighbours.
+func statedScope(run *event.Run, used []modelUse) string {
+	if run.Stated == nil {
+		return ""
+	}
+	missing := 0
+	for _, mu := range used {
+		if len(mu.Stated) == 0 {
+			missing++
+		}
+	}
+	switch {
+	case run.Stated.UnknownModelCost:
+		return "the CLI calls this figure incomplete"
+	case missing == 1:
+		return "leaves out a model it used"
+	case missing > 1:
+		return fmt.Sprintf("leaves out %d models it used", missing)
+	case run.Truncated:
+		// The snapshot is written when a sitting ends, so in a session still
+		// being written the figure stops at the last exit.
+		return "as of the last exit, not this sitting"
+	default:
+		return "the whole session"
+	}
+}
+
+// usd formats a stated cost. A model that cost less than half a cent is not
+// one that cost nothing — 16 of the 61 per-model figures surveyed were that
+// small, background models mostly — so it does not round to $0.00.
+func usd(v float64) string {
+	if v > 0 && v < 0.005 {
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", v)
+}
 
 // turnsTile opens the run of activity tiles: a turn is the coarsest unit of
 // what the agent did, and the tool calls and skills after it happen inside
@@ -745,15 +807,17 @@ func backLabel(opt Options) string {
 }
 
 // buildModelsUsed lists the models the run's own responses name, busiest
-// first, and separately the ones only the cost snapshot mentions.
+// first, each with what the cost snapshot says it cost, and separately the
+// models only the snapshot mentions.
 //
-// The two lists disagree about spelling as well as membership: the messages of
-// the surveyed session say "claude-opus-5" where its cost snapshot says
-// "claude-opus-5[1m]". A bracketed suffix marks a variant of the same model, so
-// it is stripped before comparing — narrowly, and only for deciding whether a
-// stated model is one the transcript already showed. Nothing is merged: each
-// list keeps the names its own source used.
-func buildModelsUsed(run *event.Run, t timeline.Totals) ([]modelUse, []string) {
+// The two sources disagree about spelling as well as membership: the messages
+// of the surveyed session say "claude-opus-5" where its cost snapshot says
+// "claude-opus-5[1m]", and 20 of 204 snapshots name both. A bracketed suffix
+// marks a variant of the same model, so it is stripped to decide which model a
+// stated figure belongs to — and only for that. Nothing is merged with a
+// recomputed figure: a model's stated cost sits beside its recomputed tokens,
+// and neither is adjusted to match the other.
+func buildModelsUsed(run *event.Run, t timeline.Totals) ([]modelUse, []statedCost) {
 	var used []modelUse
 	for name, u := range t.ByModel {
 		if u == (event.Usage{}) {
@@ -765,6 +829,7 @@ func buildModelsUsed(run *event.Run, t timeline.Totals) ([]modelUse, []string) {
 			Ctx:       u.ContextTokens(),
 			Thinking:  u.Thinking,
 			Responses: t.ResponsesByModel[name],
+			Stated:    []statedCost{},
 		})
 	}
 	sort.Slice(used, func(i, j int) bool {
@@ -778,22 +843,64 @@ func buildModelsUsed(run *event.Run, t timeline.Totals) ([]modelUse, []string) {
 			used[i].Share = float64(used[i].Out) / float64(total)
 		}
 	}
+	if run.Stated == nil {
+		return used, nil
+	}
 
-	var statedOnly []string
-	if run.Stated != nil {
-		seen := map[string]bool{}
-		for name := range t.ByModel {
-			seen[baseModel(name)] = true
+	names := make([]string, 0, len(run.Stated.ByModel))
+	for name, sm := range run.Stated.ByModel {
+		if sm == (event.StatedModel{}) {
+			continue
 		}
-		for name, u := range run.Stated.ByModel {
-			if u == (event.Usage{}) || seen[baseModel(name)] {
-				continue
-			}
-			statedOnly = append(statedOnly, name)
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		a, b := run.Stated.ByModel[names[i]].CostUSD, run.Stated.ByModel[names[j]].CostUSD
+		if a != b {
+			return a > b
 		}
-		sort.Strings(statedOnly)
+		return names[i] < names[j]
+	})
+
+	// Each stated name goes to one model at most, so no amount is shown twice
+	// and the amounts on the page still add up to the snapshot's total.
+	var statedOnly []statedCost
+	sums := make([]float64, len(used))
+	for _, name := range names {
+		sm := run.Stated.ByModel[name]
+		sc := statedCost{Name: name, Cost: usd(sm.CostUSD)}
+		i := statedOwner(used, name)
+		if i < 0 {
+			statedOnly = append(statedOnly, sc)
+			continue
+		}
+		used[i].Stated = append(used[i].Stated, sc)
+		sums[i] += sm.CostUSD
+	}
+	for i := range used {
+		if len(used[i].Stated) > 0 {
+			used[i].Cost = usd(sums[i])
+		}
 	}
 	return used, statedOnly
+}
+
+// statedOwner is the model a stated name belongs to: the one with exactly that
+// name, else the busiest one that is the same model under another variant,
+// else none (-1). used is ordered busiest first.
+func statedOwner(used []modelUse, name string) int {
+	for i := range used {
+		if used[i].Name == name {
+			return i
+		}
+	}
+	base := baseModel(name)
+	for i := range used {
+		if baseModel(used[i].Name) == base {
+			return i
+		}
+	}
+	return -1
 }
 
 // baseModel drops a trailing bracketed variant marker: claude-opus-5[1m] and

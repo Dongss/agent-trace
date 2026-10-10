@@ -371,7 +371,13 @@
   }
   // Drawn whether or not the run named a model, like the tiles under it: a
   // strip that vanishes reads as a rendering gap rather than as an answer.
+  //
+  // A model's cost is the one the transcript's cost snapshot states, set
+  // beside tokens recomputed from the messages and never reconciled with
+  // them. Where the view states no cost there is no figure to set, and the
+  // Cost tile says why.
   var MODELS = D.modelsUsed || [];
+  var SCOPE = D.costScope || "";
   {
     var mw = el("div", { class: "models" });
     mw.appendChild(el("span", { class: "lbl" }, MODELS.length === 1 ? "model" : "models"));
@@ -384,8 +390,10 @@
           "\n" + num(mu.responses) + (mu.responses === 1 ? " response" : " responses"),
         { quiet: true });
       card.appendChild(el("div", { class: "n" }, mu.name));
-      card.appendChild(el("div", { class: "s" },
-        mu.out ? compact(mu.out) + " out · " + pct(mu.share) : "no output recorded"));
+      var line = el("div", { class: "s" },
+        mu.out ? compact(mu.out) + " out · " + pct(mu.share) : "no output recorded");
+      if (SCOPE) line.appendChild(document.createTextNode(" · " + (mu.cost || "no cost stated")));
+      card.appendChild(line);
       var bar = el("div", { class: "bar" });
       var fill = el("i");
       fill.style.width = (mu.share * 100).toFixed(2) + "%";
@@ -394,9 +402,11 @@
       mw.appendChild(card);
     });
     if (D.statedOnly && D.statedOnly.length) {
-      mw.appendChild(withTip(el("span", { class: "also" }, "also billed: " + D.statedOnly.join(", ")),
-        "Named by the transcript's own cost snapshot, but by no response in it — " +
-          "background work, typically. Nothing here can say what they did."));
+      mw.appendChild(withTip(el("span", { class: "also" }, "also billed: " +
+          D.statedOnly.map(function (sc) { return sc.name + " " + sc.cost; }).join(", ")),
+        "Named by the transcript's own cost snapshot, but by no response in it: " +
+          "background work, typically. Nothing here can say what they did, only what the " +
+          "snapshot says they cost.\nScope: " + SCOPE + "."));
     }
     root.appendChild(mw);
   }

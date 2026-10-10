@@ -46,7 +46,8 @@ func sampleRun() *event.Run {
 		Compacts: []event.Compact{{Seq: 5, Trigger: "auto", Pre: 900000, Post: 40000, Dropped: 860000, Duration: 3 * time.Minute}},
 		Stated: &event.Stated{
 			CostUSD: 1.25, TotalDur: 30 * time.Minute, APIDur: 2 * time.Minute, ToolDur: 5 * time.Second,
-			ByModel: map[string]event.Usage{"claude-opus-5[1m]": {Input: 10, CacheRead: 70000, Output: 200}},
+			ByModel: map[string]event.StatedModel{"claude-opus-5[1m]": {
+				Usage: event.Usage{Input: 10, CacheRead: 70000, Output: 200}, CostUSD: 1.25}},
 		},
 		Skipped: map[string]int{"attachment": 12},
 	}
@@ -441,15 +442,144 @@ func TestStatedOnlyIgnoresVariantSuffixes(t *testing.T) {
 		Steps: []event.Step{
 			{Kind: event.KindAssistant, Model: "claude-opus-5", Usage: &event.Usage{Output: 10}},
 		},
-		Stated: &event.Stated{ByModel: map[string]event.Usage{
-			"claude-opus-5[1m]":         {Output: 12},
-			"claude-haiku-4-5-20251001": {Output: 3},
+		Stated: &event.Stated{ByModel: map[string]event.StatedModel{
+			"claude-opus-5[1m]":         {Usage: event.Usage{Output: 12}, CostUSD: 2},
+			"claude-haiku-4-5-20251001": {Usage: event.Usage{Output: 3}, CostUSD: 0.5},
 			"zero-usage-model":          {},
 		}},
 	}
 	_, statedOnly := buildModelsUsed(run, timeline.Compute(run))
-	if len(statedOnly) != 1 || statedOnly[0] != "claude-haiku-4-5-20251001" {
+	if len(statedOnly) != 1 || statedOnly[0].Name != "claude-haiku-4-5-20251001" {
 		t.Errorf("statedOnly = %v, want only the model the transcript never shows", statedOnly)
+	}
+	if len(statedOnly) == 1 && statedOnly[0].Cost != "$0.50" {
+		t.Errorf("stated-only cost = %q, want the snapshot's $0.50", statedOnly[0].Cost)
+	}
+}
+
+// A model's cost is the snapshot's, put beside the model it belongs to. The
+// snapshot can name one model twice, with and without a variant marker, and
+// then both amounts are that model's and both stay listed. No stated name is
+// shown twice, so what the page shows still adds up to the snapshot's total.
+func TestStatedCostGoesToItsModel(t *testing.T) {
+	run := &event.Run{
+		Steps: []event.Step{
+			{Kind: event.KindAssistant, Model: "claude-opus-5", Usage: &event.Usage{Output: 900}},
+			{Kind: event.KindAssistant, Model: "claude-sonnet-5", Usage: &event.Usage{Output: 100}},
+			{Kind: event.KindAssistant, Model: "claude-new-6", Usage: &event.Usage{Output: 10}},
+		},
+		Stated: &event.Stated{CostUSD: 12.0025, ByModel: map[string]event.StatedModel{
+			"claude-opus-5":             {Usage: event.Usage{Output: 40}, CostUSD: 1.5},
+			"claude-opus-5[1m]":         {Usage: event.Usage{Output: 800}, CostUSD: 10},
+			"claude-sonnet-5":           {Usage: event.Usage{Output: 90}, CostUSD: 0.5},
+			"claude-haiku-4-5-20251001": {Usage: event.Usage{Output: 3}, CostUSD: 0.0025},
+		}},
+	}
+	used, statedOnly := buildModelsUsed(run, timeline.Compute(run))
+	if len(used) != 3 {
+		t.Fatalf("got %d models: %+v", len(used), used)
+	}
+	opus, sonnet, unstated := used[0], used[1], used[2]
+
+	if opus.Cost != "$11.50" {
+		t.Errorf("opus cost = %q, want both of its stated names added: $11.50", opus.Cost)
+	}
+	if len(opus.Stated) != 2 || opus.Stated[0].Name != "claude-opus-5[1m]" || opus.Stated[1].Name != "claude-opus-5" {
+		t.Errorf("opus stated = %+v, want each name listed, costliest first", opus.Stated)
+	}
+	if sonnet.Cost != "$0.50" || len(sonnet.Stated) != 1 {
+		t.Errorf("sonnet = %q %+v", sonnet.Cost, sonnet.Stated)
+	}
+	// A model the snapshot never names has no stated cost, which is not a
+	// cost of nothing.
+	if unstated.Cost != "" || unstated.Stated == nil || len(unstated.Stated) != 0 {
+		t.Errorf("unstated model = %q %#v, want no cost and an empty list", unstated.Cost, unstated.Stated)
+	}
+	if len(statedOnly) != 1 || statedOnly[0].Cost != "<$0.01" {
+		t.Errorf("statedOnly = %+v, want haiku at <$0.01, not $0.00", statedOnly)
+	}
+
+	shown := 0
+	for _, u := range used {
+		shown += len(u.Stated)
+	}
+	if shown+len(statedOnly) != len(run.Stated.ByModel) {
+		t.Errorf("%d stated names shown, want each of the %d exactly once", shown+len(statedOnly), len(run.Stated.ByModel))
+	}
+}
+
+// A stated name goes to the model of exactly that name before any variant of
+// it, and a variant to the busiest model sharing its base, never to two.
+func TestStatedOwner(t *testing.T) {
+	used := []modelUse{{Name: "m"}, {Name: "m[1m]"}, {Name: "other"}}
+	for name, want := range map[string]int{"m": 0, "m[1m]": 1, "m[2m]": 0, "other[1m]": 2, "nobody": -1} {
+		if got := statedOwner(used, name); got != want {
+			t.Errorf("statedOwner(%q) = %d, want %d", name, got, want)
+		}
+	}
+}
+
+// The cost scope is worded once, for the tile and every model beside it, and
+// a view that states no cost has none — a window included, because the
+// snapshot covers the whole session.
+func TestCostScope(t *testing.T) {
+	run := sampleRun()
+	v := build(run, Options{})
+	if v.CostScope != "the whole session" {
+		t.Errorf("scope = %q", v.CostScope)
+	}
+	for _, st := range v.Stats {
+		if st.Label == "Cost" && st.Note != v.CostScope {
+			t.Errorf("Cost tile says %q, models say %q", st.Note, v.CostScope)
+		}
+	}
+	if len(v.ModelsUsed) != 1 || v.ModelsUsed[0].Cost != "$1.25" {
+		t.Errorf("models = %+v, want the snapshot's $1.25 on claude-opus-5", v.ModelsUsed)
+	}
+
+	run.Truncated = true
+	if got := build(run, Options{}).CostScope; got != "as of the last exit, not this sitting" {
+		t.Errorf("truncated scope = %q", got)
+	}
+
+	// A model the snapshot names no cost for is in no stated figure, since the
+	// snapshot's total adds up the models it names; "the whole session" would
+	// claim otherwise beside a card saying so.
+	run = sampleRun()
+	run.Steps = append(run.Steps, event.Step{Seq: 7, Kind: event.KindAssistant,
+		At: run.End, HasTime: true, Model: "claude-fable-5", Usage: &event.Usage{Output: 5}})
+	v = build(run, Options{})
+	if v.CostScope != "leaves out a model it used" {
+		t.Errorf("scope with an unstated model = %q", v.CostScope)
+	}
+	for _, st := range v.Stats {
+		if st.Label == "Cost" && st.Note != v.CostScope {
+			t.Errorf("Cost tile says %q, models say %q", st.Note, v.CostScope)
+		}
+	}
+	run.Steps = append(run.Steps, event.Step{Seq: 8, Kind: event.KindAssistant,
+		At: run.End, HasTime: true, Model: "claude-sonnet-5", Usage: &event.Usage{Output: 5}})
+	if got := build(run, Options{}).CostScope; got != "leaves out 2 models it used" {
+		t.Errorf("scope with two unstated models = %q", got)
+	}
+
+	windowed := timeline.Window(sampleRun(), run.Start, run.Start.Add(time.Minute))
+	v = build(windowed, Options{})
+	if v.CostScope != "" {
+		t.Errorf("windowed scope = %q, want none", v.CostScope)
+	}
+	for _, mu := range v.ModelsUsed {
+		if mu.Cost != "" {
+			t.Errorf("windowed %s shows cost %q", mu.Name, mu.Cost)
+		}
+	}
+}
+
+func TestUSD(t *testing.T) {
+	for in, want := range map[float64]string{0: "$0.00", 0.004: "<$0.01", 0.005: "$0.01", 771.714: "$771.71"} {
+		if got := usd(in); got != want {
+			t.Errorf("usd(%v) = %q, want %q", in, got, want)
+		}
 	}
 }
 

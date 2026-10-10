@@ -229,7 +229,17 @@ type Stated struct {
 	ToolDur      time.Duration
 	LinesAdded   int
 	LinesRemoved int
-	ByModel      map[string]Usage
+	// ByModel is the snapshot's own breakdown, under the names it gives the
+	// models, which are not always the names the messages give them. Its costs
+	// add up to CostUSD: they did in all 204 snapshots surveyed.
+	ByModel map[string]StatedModel
 	// UnknownModelCost is the CLI saying its own cost figure is incomplete.
 	UnknownModelCost bool
+}
+
+// StatedModel is what the cost snapshot claims for one model: the tokens it
+// counted, and what it says they cost.
+type StatedModel struct {
+	Usage
+	CostUSD float64
 }

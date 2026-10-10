@@ -615,15 +615,18 @@ func (p *parser) costState(e *entry) {
 		LinesAdded:       e.TotalLinesAdded,
 		LinesRemoved:     e.TotalLinesRemoved,
 		UnknownModelCost: e.HasUnknownModelCost,
-		ByModel:          map[string]event.Usage{},
+		ByModel:          map[string]event.StatedModel{},
 	}
 	for model, mu := range e.ModelUsage {
-		s.ByModel[model] = event.Usage{
-			Input:      mu.InputTokens,
-			CacheRead:  mu.CacheReadInputTokens,
-			CacheWrite: mu.CacheCreationInputTokens,
-			Output:     mu.OutputTokens,
-			Thinking:   mu.ThinkingTokens,
+		s.ByModel[model] = event.StatedModel{
+			Usage: event.Usage{
+				Input:      mu.InputTokens,
+				CacheRead:  mu.CacheReadInputTokens,
+				CacheWrite: mu.CacheCreationInputTokens,
+				Output:     mu.OutputTokens,
+				Thinking:   mu.ThinkingTokens,
+			},
+			CostUSD: mu.CostUSD,
 		}
 	}
 	p.stated = s // a snapshot: the last one in the file wins

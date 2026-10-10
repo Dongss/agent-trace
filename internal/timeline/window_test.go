@@ -31,7 +31,7 @@ func windowRun() *event.Run {
 		},
 		// Compaction 5 sits between seq 4 and seq 6 and carries no timestamp.
 		Compacts: []event.Compact{{Seq: 5, Trigger: "auto", Pre: 900, Post: 40}},
-		Stated:   &event.Stated{CostUSD: 12.5, ByModel: map[string]event.Usage{"m": {Output: 60}}},
+		Stated:   &event.Stated{CostUSD: 12.5, ByModel: map[string]event.StatedModel{"m": {Usage: event.Usage{Output: 60}, CostUSD: 12.5}}},
 		Skipped:  map[string]int{"attachment": 3},
 	}
 }

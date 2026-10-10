@@ -258,15 +258,27 @@ Code that ignores one produces a timeline that looks right and is wrong.
   still open or killed rather than one too old to have the field — though that
   is a cause too: the entry does not exist before 2.1.258, and `sdk-cli` never
   writes one at any release. The consequence for the page is that the stated
-  figure covers everything up to the last exit and nothing since.
+  figure covers everything up to the last exit and nothing since — at best.
+  A snapshot can also name no cost for a model the session used *before* it:
+  3 of 55 sessions, 205 responses in one; in another, every snapshot after an
+  editor-extension sitting stated $0 with an empty `modelUsage`. Totals
+  never fall from one snapshot to the next (149 pairs), and each one's
+  `totalCostUSD` is exactly the sum of its `modelUsage` costs (204 of 204), so
+  a model it leaves out is in no stated figure. The Cost tile says "leaves out
+  a model it used" then, rather than "the whole session".
 
 - **Stated and recomputed figures are never reconciled by editing one.** The
   snapshot names models the messages never mention and spells the main one
   differently (`claude-opus-5[1m]` against `claude-opus-5`), so summing
   messages cannot reproduce it. A trailing bracketed marker is stripped only to
-  decide whether a stated model is one the transcript already showed; nothing
-  is merged. The snapshot also lags by a whole sitting — mid-sitting it showed
-  $0.68 and 2,890 output tokens against 61,710 recomputed.
+  decide which model a stated figure belongs to: each model's stated cost sits
+  beside its recomputed tokens, and nothing recomputed is adjusted to match.
+  One model can be stated under both spellings — 20 of 204 snapshots — and
+  then its card shows both amounts added, since the messages' tokens cover
+  both. A model under half a cent shows `<$0.01`, not `$0.00`: 16 of 61
+  per-model figures were that small. The snapshot also lags by a whole
+  sitting — mid-sitting it showed $0.68 and 2,890 output tokens against 61,710
+  recomputed.
 
 - **Share is of output, not of the total.** Ranking models by the grand total
   puts whichever re-read the most context first and makes every model in a long

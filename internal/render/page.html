@@ -6,9 +6,11 @@
 <title>agtrace</title>
 <script>/*__AGTRACE_THEME_JS__*/</script>
 <script>/*__AGTRACE_TIP_JS__*/</script>
+<script>/*__AGTRACE_COPY_JS__*/</script>
 <style>
   /*__AGTRACE_THEME_CSS__*/
   /*__AGTRACE_TIP_CSS__*/
+  /*__AGTRACE_COPY_CSS__*/
 
   * { box-sizing: border-box; }
   body {
@@ -96,7 +98,10 @@
   h1 .k { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
     color:var(--muted); margin-right:-8px; }
   h1 .v { overflow-wrap:anywhere; }
-  h1 .id { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:550; }
+  /* The id is a handle rather than a name: smaller and quieter than the two
+     beside it, with its copy button held against it. */
+  h1 .sid { display:inline-flex; align-items:baseline; gap:3px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size:15px; font-weight:500; color:var(--ink-2); }
   .sub { color:var(--ink-2); font-size:13px; margin-top:5px; overflow-wrap:anywhere; }
   .sub + .sub { margin-top:2px; }
   .sub code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -235,28 +240,27 @@
   var head = el("header");
   var left = el("div", { class: "id-block" });
   var h1 = el("h1");
-  // Both fields, each labelled. They are different things — what the CLI calls
-  // the session and what the model called it — and a heading that showed one
-  // and hid the other made readers ask which they were looking at.
+  // The same three fields as the listing's first two columns, in the same
+  // order, each labelled. The name and the title are different things — what the CLI
+  // calls the session and what the model called it — and a heading that
+  // showed one and hid the other made readers ask which they were looking at.
+  // The id is always there, so a session with neither still has a heading.
   function headingPart(label, value) {
     h1.appendChild(el("span", { class: "k" }, label));
-    h1.appendChild(el("span", { class: "v" }, value));
+    var v = typeof value === "string" ? el("span", null, value) : value;
+    v.classList.add("v");
+    h1.appendChild(v);
   }
+  var sid = el("span", { class: "sid" }, m.short);
+  sid.appendChild(window.agtraceCopy.button(m.sessionId, "session id"));
+  headingPart("session", sid);
   if (m.agentName) headingPart("name", m.agentName);
   if (m.title) headingPart("title", m.title);
-  if (!m.agentName && !m.title) {
-    h1.appendChild(el("span", null, "Agent run "));
-    h1.appendChild(el("span", { class: "id" }, m.short));
-  }
   left.appendChild(h1);
   // Three lines, because one was long enough to wrap on its own and wrap
   // badly: where the session is, what ran it, then when. A 90-character
   // working directory now pushes nothing but itself around.
   var sub = el("div", { class: "sub" });
-  if (m.agentName || m.title) {
-    sub.appendChild(el("code", null, m.short));
-    sub.appendChild(el("span", null, "  ·  "));
-  }
   sub.appendChild(el("code", null, m.cwd || "(cwd not recorded)"));
   if (m.branch) sub.appendChild(el("span", null, "  ·  branch " + m.branch));
   left.appendChild(sub);

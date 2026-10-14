@@ -371,6 +371,16 @@ Code that ignores one produces a timeline that looks right and is wrong.
   toggle keeps its `title` on purpose. A test fails on any other `title` in
   either page.
 
+- **A copy button shows the short id and copies the whole one.** The short
+  form is for reading; a resume or a search wants all of it. It has no hover
+  text, by request: a box over every row's id saying "copy" was noise, and a
+  click is answered by the icon turning into a tick. `copy.js` and `copy.css`
+  are shared the way `tip.js` is, and the button is made only by
+  `agtraceCopy.button`, so a page with its scripts off shows none rather than
+  one that does nothing. Outside a secure context — a page opened from
+  another machine under `--host` — there is no `navigator.clipboard`, and it
+  falls back to `execCommand`.
+
 - **Storage can throw.** Every access to `localStorage` is wrapped: it throws
   in a private window and the page still has to render. The theme cycles
   system → light → dark, because a two-state toggle cannot return to the OS

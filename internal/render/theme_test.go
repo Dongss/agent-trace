@@ -63,6 +63,37 @@ func TestTipAssetsAreServable(t *testing.T) {
 	}
 }
 
+// The copy button is shared too. It has no hover text at all — neither a tip
+// nor the browser's title — and answers a click with a tick.
+func TestCopyAssetsAreServable(t *testing.T) {
+	css, js := CopyCSS(), CopyJS()
+	if !strings.Contains(css, "button.copy") || !strings.Contains(css, ".copied") {
+		t.Error("copy.css does not style the button and its copied state")
+	}
+	for _, want := range []string{"agtraceCopy", "button:", "aria-label",
+		"navigator.clipboard", "execCommand", "isSecureContext"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("copy.js is missing %q", want)
+		}
+	}
+	for _, bad := range []string{"agtraceTip", "data-tip", "title"} {
+		if strings.Contains(js, bad) {
+			t.Errorf("copy.js gives the button hover text (%q)", bad)
+		}
+	}
+	if strings.Contains(js, "</script") || strings.Contains(css, "</style") {
+		t.Error("a copy asset can break out of its element")
+	}
+
+	page, err := Page(sampleRun(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "window.agtraceCopy = {") {
+		t.Error("copy.js did not reach the page")
+	}
+}
+
 // The browser's title tooltip is slow to appear, never appears on a touch
 // screen, and in use was not seen at all. The page's hover text goes through
 // tip.js; this keeps a title from coming back by habit.
@@ -87,7 +118,8 @@ func TestPageSubstitutesTheThemeAssets(t *testing.T) {
 	}
 	html := string(page)
 	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/",
-		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/"} {
+		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/",
+		"/*__AGTRACE_COPY_CSS__*/", "/*__AGTRACE_COPY_JS__*/"} {
 		if strings.Contains(html, marker) {
 			t.Errorf("%s survived into the output", marker)
 		}
@@ -259,10 +291,11 @@ func TestSurfacesAreNotPooled(t *testing.T) {
 	}
 }
 
-// The heading names both fields. Showing one and hiding the other made readers
-// ask which they were looking at, and "agent" is not available as a label: it
+// The heading names the session, then both of its names, as the listing's
+// first two columns do. Showing one name and hiding the other made readers ask
+// which they were looking at, and "agent" is not available as a label: it
 // already names the CLI in the session list.
-func TestHeadingLabelsBothNameAndTitle(t *testing.T) {
+func TestHeadingLabelsSessionNameAndTitle(t *testing.T) {
 	page, err := Page(sampleRun(), Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -271,8 +304,14 @@ func TestHeadingLabelsBothNameAndTitle(t *testing.T) {
 	if strings.Contains(html, `"agent: "`) {
 		t.Error(`the page still labels the session's name "agent:"`)
 	}
-	if !strings.Contains(html, `headingPart("name"`) || !strings.Contains(html, `headingPart("title"`) {
-		t.Error("the heading does not label both fields")
+	for _, want := range []string{`headingPart("session"`, `headingPart("name"`, `headingPart("title"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the heading does not label a field: no %s", want)
+		}
+	}
+	// The id is shown short and copied whole.
+	if !strings.Contains(html, `agtraceCopy.button(m.sessionId, "session id")`) {
+		t.Error("the heading's session id has no copy button copying the whole id")
 	}
 
 	// Both reach the page; which of them the heading can draw depends on the run.
@@ -282,6 +321,9 @@ func TestHeadingLabelsBothNameAndTitle(t *testing.T) {
 	v := build(run, Options{})
 	if v.Meta.AgentName != "webapp" || v.Meta.Title != "another ünïcödé title" {
 		t.Errorf("meta carries name=%q title=%q", v.Meta.AgentName, v.Meta.Title)
+	}
+	if v.Meta.SessionID != run.SessionID || v.Meta.Short != short(run.SessionID) {
+		t.Errorf("meta carries id=%q short=%q for %q", v.Meta.SessionID, v.Meta.Short, run.SessionID)
 	}
 }
 

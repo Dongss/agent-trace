@@ -240,6 +240,9 @@ func TestBackHrefCarriesFilterAndOrder(t *testing.T) {
 		// The checkbox is ticked by default, so only the other state is written
 		// down, and only that state has to come back.
 		{url.Values{"empty": {"1"}}, []string{"agent=claude-code", "empty=1"}},
+		// The heatmap's day and measure are part of the view too.
+		{url.Values{"day": {"2026-09-24"}, "heat": {"responses"}},
+			[]string{"agent=claude-code", "day=2026-09-24", "heat=responses"}},
 		// Anything else on the session page's own URL stays there: a back link
 		// is built from the listing's controls, not replayed from the address
 		// bar it happens to be on.

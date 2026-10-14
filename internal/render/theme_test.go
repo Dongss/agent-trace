@@ -21,7 +21,7 @@ func TestThemeAssetsAreServable(t *testing.T) {
 	// The dark set must be declared under both scopes, or the toggle wins in
 	// only one direction.
 	for _, want := range []string{
-		":root {", "--surface-1:#fcfcfb", "--accent:", "button.toggle",
+		":root {", "--surface-1:#fcfcfb", "--accent:", "--seq-1:", "--seq-4:", "button.toggle",
 		"@media (prefers-color-scheme: dark)", `:root:where(:not([data-theme="light"]))`,
 		`:root[data-theme="dark"]`,
 	} {

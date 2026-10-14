@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Dongss/agent-trace/internal/event"
 	"github.com/Dongss/agent-trace/internal/textfmt"
@@ -40,6 +41,14 @@ type Totals struct {
 	Responses int
 	ToolCalls int
 
+	// Activity is when those responses were made: their tokens and count in
+	// quarter-hour slots, keyed by the slot's start in Unix seconds. A quarter
+	// hour rather than an hour because time zones sit a whole number of
+	// quarter hours from UTC but not always of hours (+5:30, +5:45), and the
+	// listing draws each slot in the reader's local hour. A response with no
+	// timestamp is in the totals above and not here.
+	Activity map[int64]*Slot
+
 	// Cost is what the transcript states, when it states anything. It is not
 	// recomputed from the tokens: that would need a price table which is not
 	// in the transcript and would go stale here.
@@ -61,26 +70,49 @@ func (t Totals) Total() int {
 	return t.Tokens.Input + t.Tokens.CacheRead + t.Tokens.CacheWrite + t.Tokens.Output
 }
 
+// Slot is the responses made in one quarter hour of Totals.Activity.
+type Slot struct {
+	Tokens    event.Usage
+	Responses int
+}
+
+// SlotSeconds is the width of a Totals.Activity slot.
+const SlotSeconds = 15 * 60
+
+// SlotOf is the Totals.Activity key a response made at t is counted under.
+func SlotOf(t time.Time) int64 {
+	u := t.Unix()
+	return u - u%SlotSeconds
+}
+
 // scanKeys are the markers that make a line worth decoding. A line matching
 // none of them cannot carry anything Scan reports.
 var scanKeys = []string{`"usage"`, `"aiTitle"`, `"customTitle"`, `"agentName"`, `"cost-state"`}
 
 // scanState is what deduplication needs to remember across the lines of a
-// session and its subagents: which responses have been counted, and at what
-// output, and which tool calls.
+// session and its subagents: which responses have been counted, at what
+// output and in which slot, and which tool calls.
 type scanState struct {
-	resp    map[string]*event.Usage
+	resp    map[string]*scanResp
 	seenUse map[string]bool
 	// session is false while reading a subagent's transcript, whose titles and
 	// cost snapshots, had it any, would not be the session's.
 	session bool
 }
 
+// scanResp is one counted response. A later entry of it can raise its output,
+// and the rise belongs to the slot of the entry that was counted, as the full
+// parser attaches usage to the first entry of a message.id.
+type scanResp struct {
+	u    event.Usage
+	slot *Slot // nil when the first entry carried no timestamp
+}
+
 // Scan reads one session for listing purposes: its transcript and those of
 // the subagents it spawned, as ReadFile does.
 func Scan(path string) (*Totals, error) {
-	var out Totals
-	st := scanState{resp: map[string]*event.Usage{}, seenUse: map[string]bool{}, session: true}
+	out := Totals{Activity: map[int64]*Slot{}}
+	st := scanState{resp: map[string]*scanResp{}, seenUse: map[string]bool{}, session: true}
 	if err := scanFile(path, &out, &st); err != nil {
 		return nil, err
 	}
@@ -174,19 +206,29 @@ func scanLine(s string, out *Totals, st *scanState) {
 		// output — the same rule as the full parser's, through the same code.
 		if isResponse(&e) {
 			if prev, seen := st.resp[e.Message.ID]; seen {
-				out0, think0 := prev.Output, prev.Thinking
-				repeatUsage(prev, e.Message)
-				out.Tokens.Output += prev.Output - out0
-				out.Tokens.Thinking += prev.Thinking - think0
+				out0, think0 := prev.u.Output, prev.u.Thinking
+				repeatUsage(&prev.u, e.Message)
+				dOut, dThink := prev.u.Output-out0, prev.u.Thinking-think0
+				out.Tokens.Output += dOut
+				out.Tokens.Thinking += dThink
+				if prev.slot != nil {
+					prev.slot.Tokens.Output += dOut
+					prev.slot.Tokens.Thinking += dThink
+				}
 			} else {
-				u := firstUsage(e.Message)
-				st.resp[e.Message.ID] = &u
+				r := &scanResp{u: firstUsage(e.Message)}
+				st.resp[e.Message.ID] = r
 				out.Responses++
-				out.Tokens.Input += u.Input
-				out.Tokens.CacheRead += u.CacheRead
-				out.Tokens.CacheWrite += u.CacheWrite
-				out.Tokens.Output += u.Output
-				out.Tokens.Thinking += u.Thinking
+				addUsage(&out.Tokens, r.u)
+				if at, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+					k := SlotOf(at)
+					if out.Activity[k] == nil {
+						out.Activity[k] = &Slot{}
+					}
+					r.slot = out.Activity[k]
+					r.slot.Responses++
+					addUsage(&r.slot.Tokens, r.u)
+				}
 			}
 		}
 		for _, b := range decodeBlocks(e.Message.Content) {
@@ -196,4 +238,12 @@ func scanLine(s string, out *Totals, st *scanState) {
 			}
 		}
 	}
+}
+
+func addUsage(to *event.Usage, u event.Usage) {
+	to.Input += u.Input
+	to.CacheRead += u.CacheRead
+	to.CacheWrite += u.CacheWrite
+	to.Output += u.Output
+	to.Thinking += u.Thinking
 }

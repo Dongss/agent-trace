@@ -13,7 +13,7 @@
 (function () {
   "use strict";
   var ID = "agtrace-tip", GAP = 6, EDGE = 8;
-  var box = null, current = null;
+  var box = null, current = null, over = null;
 
   function el() {
     if (!box) {
@@ -82,25 +82,36 @@
     return null;
   }
 
+  // A keys-only tip shows on focus the keyboard gave, and not on the focus a
+  // mouse click gives a button.
+  function byKeys(n) {
+    try { return n.matches(":focus-visible"); } catch (e) { return true; }
+  }
+
   document.addEventListener("mouseover", function (e) {
     var n = find(e.target);
+    if (n && n.agtraceTipKeys) n = null;
+    over = n;
     if (n === current) return;
     if (n) show(n);
     else hide();
   });
   // Off the page altogether: no mouseover follows to say so.
   document.addEventListener("mouseout", function (e) {
-    if (!e.relatedTarget) hide();
+    if (!e.relatedTarget) { over = null; hide(); }
   });
   document.addEventListener("focusin", function (e) {
     var n = find(e.target);
-    if (n) show(n);
+    if (n && (!n.agtraceTipKeys || byKeys(n))) show(n);
   });
   document.addEventListener("focusout", hide);
-  // A tip that says what a click will do has something new to say after one.
+  // After a click the tip under the pointer shows again, read afresh: a tip
+  // worked out when it shows can say something new after one, and the focus
+  // leaving another element on the way has just hidden whatever was showing.
   document.addEventListener("click", function (e) {
     var n = find(e.target);
-    if (n && typeof n.agtraceTip === "function") show(n);
+    if (!n || (n.agtraceTipKeys && !byKeys(n))) return;
+    if (n === over || typeof n.agtraceTip === "function") show(n);
   });
   // A box left where its element used to be is worse than none.
   window.addEventListener("scroll", function () { if (current) place(current); }, { passive: true });
@@ -113,9 +124,12 @@
     // Detail that only restates what is visible at more length is
     // opts.quiet and looks like nothing until pointed at. opts.focus false
     // leaves the node out of the tab order, for the cells of a row whose
-    // first cell already carries the tip. text can be a function.
+    // first cell already carries the tip. opts.hover false shows it only on
+    // keyboard focus, for a node whose parts carry their own tips under a
+    // pointer. text can be a function.
     attach: function (node, text, opts) {
       opts = opts || {};
+      if (opts.hover === false) node.agtraceTipKeys = true;
       if (typeof text === "function") {
         node.agtraceTip = text;
         node.setAttribute("data-tip", "");

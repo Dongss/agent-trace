@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -43,6 +44,10 @@ func TestScanMatchesFullParseAndIsFaster(t *testing.T) {
 		}
 		if tot.ToolCalls != full.ToolCalls {
 			t.Errorf("%s: scan tool calls %d != %d", s.ID, tot.ToolCalls, full.ToolCalls)
+		}
+		if got, want := slotsOf(tot), activityOf(run); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: scan puts responses in %d slots, the full parse in %d, and they differ",
+				s.ID, len(got), len(want))
 		}
 	}
 	t.Logf("%d sessions, %.0f MB: scan %v, full parse %v", len(sessions), float64(bytes)/1e6, scanDur.Round(time.Millisecond), parseDur.Round(time.Millisecond))

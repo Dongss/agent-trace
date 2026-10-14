@@ -16,6 +16,11 @@
   /* UI chrome, not a series: a selected tab is not data. Same hue as the first
      categorical slot, named apart so the two cannot be confused. */
   --accent:#2a78d6;
+  /* A sequential ramp, for how much rather than which: one hue, four steps
+     from little to most. Validated as an ordinal ramp, so its faintest step
+     still clears 2:1 on the surface; in dark it runs the other way, the most
+     being the brightest. Nothing is not a step: it is --grid. */
+  --seq-1:#86b6ef; --seq-2:#3987e5; --seq-3:#1c5cab; --seq-4:#0d366b;
   --shadow:0 1px 2px rgba(11,11,11,.06), 0 8px 24px rgba(11,11,11,.04);
 }
 @media (prefers-color-scheme: dark) {
@@ -27,6 +32,7 @@
     --s-read:#3987e5; --s-write:#d95926; --s-in:#199e70;
     --s-out:#c3c2b7;
     --accent:#3987e5;
+    --seq-1:#1c5cab; --seq-2:#3987e5; --seq-3:#86b6ef; --seq-4:#cde2fb;
     --shadow:none;
   }
 }
@@ -38,6 +44,7 @@
   --s-read:#3987e5; --s-write:#d95926; --s-in:#199e70;
   --s-out:#c3c2b7;
   --accent:#3987e5;
+  --seq-1:#1c5cab; --seq-2:#3987e5; --seq-3:#86b6ef; --seq-4:#cde2fb;
   --shadow:none;
 }
 

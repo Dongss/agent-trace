@@ -108,6 +108,8 @@ func newMux(defaultAgent agent.Agent) *http.ServeMux {
 			}
 			totals.fill(sessions)
 			data.Sessions = sessions
+			now := time.Now()
+			data.Heat = heatJSON(buildHeat(sessions, now))
 			if len(sessions) == 0 {
 				data.Problem = "No sessions under " + textfmt.Path(a.Root)
 			}
@@ -388,7 +390,7 @@ func shortDur(d time.Duration) string {
 func backHref(agentID string, from url.Values) string {
 	v := url.Values{}
 	v.Set("agent", agentID)
-	for _, k := range []string{"q", "sort", "dir", "empty"} {
+	for _, k := range []string{"q", "sort", "dir", "empty", "day", "heat"} {
 		if val := from.Get(k); val != "" {
 			v.Set(k, val)
 		}
@@ -491,6 +493,8 @@ type indexData struct {
 	Agent    agent.Agent
 	Agents   []agent.Agent
 	Sessions []claudecode.Session
+	// Heat is the activity heatmap over Sessions, in their order.
+	Heat template.JS
 	// Problem is why there is no table: no reader, no directory, or nothing in
 	// it. Saying which beats an empty page.
 	Problem string
@@ -615,6 +619,52 @@ td.nt a:hover{border-bottom-color:currentColor}
  position:relative}
 /* Six pixels is a mark, not a target: the pointer gets a margin round it. */
 .dot::after{content:"";position:absolute;inset:-7px}
+/* The activity heatmap: a day a column, an hour a row, above the rows it
+   adds up. Columns stop growing at 28px, so a short run of days stays a
+   compact block at the left rather than stretching into slabs. */
+.heat{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:12px 14px 10px;margin:0 0 18px}
+.heat-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.heat-head .l{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.heat h2{font-size:13px;font-weight:600;margin:0}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden}
+.seg button{font:inherit;font-size:12px;color:var(--ink-2);background:none;border:0;padding:3px 11px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--grid);color:var(--ink);font-weight:550}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.scale{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted)}
+.scale i{width:11px;height:11px;border-radius:2px;background:var(--grid)}
+.scale span{margin:0 3px}
+.hm{display:flex;gap:6px}
+.hm.empty{color:var(--ink-2);font-size:12px;padding:8px 0}
+/* Hour labels sit beside rows 00, 06, 12 and 18: seven pixels a row, less
+   two to centre ten-pixel text on six-pixel cells. */
+.hm .hours{position:relative;flex:none;width:16px;font-size:10px;line-height:10px;color:var(--muted);
+ font-variant-numeric:tabular-nums}
+.hm .hours span{position:absolute;right:0}
+.hm .cols{display:flex;gap:2px;flex:1;min-width:0;overflow-x:auto;padding:0 2px 2px}
+.hm .cols.picking .day:not(.sel){opacity:.4}
+.hm .day{appearance:none;position:relative;flex:1 1 0;min-width:8px;max-width:28px;margin:0;padding:0 0 16px;
+ border:0;border-radius:3px;background:none;cursor:pointer;display:flex;flex-direction:column;gap:1px;font:inherit}
+.hm .day i{position:relative;display:block;height:6px;border-radius:1.5px;background:var(--grid)}
+/* Each hour reaches over the gap below it and the one to its right, so the
+   pointer is always on an hour inside the grid: on a gap it was on the day,
+   whose tip took the hour's place for a pixel at a time. */
+.hm .day i::after{content:"";position:absolute;inset:0 -2px -1px 0}
+.hm .day i:hover{outline:1px solid var(--ink);outline-offset:0}
+.hm i.l1,.scale i.l1{background:var(--seq-1)}
+.hm i.l2,.scale i.l2{background:var(--seq-2)}
+.hm i.l3,.scale i.l3{background:var(--seq-3)}
+.hm i.l4,.scale i.l4{background:var(--seq-4)}
+.hm .day.sel{box-shadow:0 0 0 1.5px var(--ink)}
+.hm .day:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* Right-aligned to its column, so the newest label, today's, never pushes
+   the row into scrolling. The script hides the ones that would collide. */
+.hm .dl{position:absolute;right:0;bottom:0;font-size:10px;line-height:13px;color:var(--muted);white-space:nowrap;
+ font-variant-numeric:tabular-nums}
+.chip{font:inherit;font-size:12px;color:var(--ink);background:var(--surface-1);border:1px solid var(--ink-2);
+ border-radius:999px;padding:4px 11px;cursor:pointer}
+.chip:hover{border-color:var(--ink)}
 .note{margin-top:16px;color:var(--ink-2);font-size:12px}
 .note p{margin:4px 0}
 .problem{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:16px;color:var(--ink-2)}
@@ -651,6 +701,22 @@ td.nt a:hover{border-bottom-color:currentColor}
   <p style="margin:10px 0 0">Transcripts would come from <code>{{.Agent.Transcripts}}</code>.</p>
 </div>
 {{else}}
+<section class="heat" aria-labelledby="heat-h">
+  <div class="heat-head">
+    <div class="l">
+      <h2 id="heat-h">Activity</h2>
+      {{- /* Each says what it counts, since the three differ by orders of
+             magnitude and only one of them is a count of anything done. */}}
+      <div class="seg" role="group" aria-label="What a cell's colour measures">
+        <button type="button" data-m="tokens" aria-describedby="agtrace-tip" data-tip="Input, cache and output tokens added up: a volume, not a price, and mostly context re-read from cache in a long session.">Total tokens</button>
+        <button type="button" data-m="responses" aria-describedby="agtrace-tip" data-tip="API responses, each counted once however many entries the transcript wrote it as.">Responses</button>
+        <button type="button" data-m="output" aria-describedby="agtrace-tip" data-tip="What the model wrote, thinking included.">Output tokens</button>
+      </div>
+    </div>
+    <div class="scale" id="heat-scale" aria-hidden="true"></div>
+  </div>
+  <div class="hm" id="heat-grid"></div>
+</section>
 <div class="tools">
   <input type="search" id="q" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search sessions">
   {{- /* On by default: a session that spent nothing is a transcript that was
@@ -659,6 +725,7 @@ td.nt a:hover{border-bottom-color:currentColor}
          server, so unticking the box is instant and the count can say how
          many were held back. */ -}}
   <label><input type="checkbox" id="empty" checked> Hide empty</label>
+  <button type="button" class="chip" id="day-chip" hidden></button>
 </div>
 <div class="count" id="count"></div>
 <div class="scroll">
@@ -767,6 +834,230 @@ td.nt a:hover{border-bottom-color:currentColor}
   // was idle on the strength of a figure nobody has.
   var spentNothing = keys.map(function (k) { return k[0] === 0; });
 
+  /* ---------- the activity heatmap ---------- */
+  // Each row of HEAT.rows is one session, in the order of rows above: a list
+  // of [day*24+hour, total tokens, responses, output tokens].
+  var HEAT = {{.Heat}};
+  var heatDays = HEAT.days || [];
+  var heatGrid = document.getElementById("heat-grid");
+  var heatScale = document.getElementById("heat-scale");
+  var dayChip = document.getElementById("day-chip");
+  var segs = Array.prototype.slice.call(document.querySelectorAll(".seg button"));
+  var MEASURES = { tokens: 1, responses: 2, output: 3 };
+  var measure = "tokens", selDay = -1;
+  var rowDays = HEAT.rows.map(function (cells) {
+    var d = {};
+    cells.forEach(function (c) { d[Math.floor(c[0] / 24)] = true; });
+    return d;
+  });
+
+  function fmt(n) { return n.toLocaleString("en-US"); }
+  // The session page's compact, digit for digit, as the Tokens column is.
+  function trim(f) { return f >= 100 ? f.toFixed(0) : f.toFixed(1).replace(/\.0$/, ""); }
+  function compact(n) {
+    if (n >= 1e9) return trim(n / 1e9) + "B";
+    if (n >= 1e6) return trim(n / 1e6) + "M";
+    if (n >= 1e3) return trim(n / 1e3) + "k";
+    return fmt(n);
+  }
+  function amount(n, short) {
+    var v = short ? compact(n) : fmt(n);
+    if (measure === "responses") return v + (n === 1 ? " response" : " responses");
+    return v + (measure === "output" ? " output tokens" : " total tokens");
+  }
+  function sessionsText(n) { return n + (n === 1 ? " session" : " sessions"); }
+  var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function dayName(d, short) {
+    var p = heatDays[d].split("-");
+    var wd = WD[new Date(+p[0], +p[1] - 1, +p[2]).getDay()];
+    return wd + " " + (short ? p[1] + "-" + p[2] : heatDays[d]);
+  }
+  function two(h) { return (h < 10 ? "0" : "") + h; }
+
+  var cols = [], cells = [], dayTips = [], colWrap = null;
+  if (heatDays.length) {
+    var hours = document.createElement("div");
+    hours.className = "hours";
+    hours.setAttribute("aria-hidden", "true");
+    [0, 6, 12, 18].forEach(function (h) {
+      var t = document.createElement("span");
+      t.textContent = two(h);
+      t.style.top = (h * 7 - 2) + "px";
+      hours.appendChild(t);
+    });
+    colWrap = document.createElement("div");
+    colWrap.className = "cols";
+    heatDays.forEach(function (_, d) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "day";
+      b.setAttribute("aria-label", dayName(d));
+      b.setAttribute("aria-describedby", "agtrace-tip");
+      // For the keyboard alone: under a pointer the day is all hours, each
+      // with its own tip.
+      window.agtraceTip.attach(b, function () { return dayTips[d]; }, { quiet: true, focus: false, hover: false });
+      var col = [];
+      for (var h = 0; h < 24; h++) {
+        var c = document.createElement("i");
+        b.appendChild(c);
+        col.push(c);
+      }
+      var lab = document.createElement("span");
+      lab.className = "dl";
+      lab.setAttribute("aria-hidden", "true");
+      lab.textContent = heatDays[d].slice(5);
+      b.appendChild(lab);
+      b.addEventListener("click", function () {
+        selDay = selDay === d ? -1 : d;
+        apply();
+      });
+      // One stop in the tab order for the whole grid, not one a day: the
+      // arrows move along it, as in a toolbar.
+      b.addEventListener("keydown", function (e) {
+        var to = e.key === "ArrowLeft" ? d - 1 : e.key === "ArrowRight" ? d + 1 :
+          e.key === "Home" ? 0 : e.key === "End" ? cols.length - 1 : -1;
+        if (to < 0 || to >= cols.length) return;
+        e.preventDefault();
+        cols[to].focus();
+      });
+      b.addEventListener("focus", function () {
+        cols.forEach(function (o) { o.tabIndex = o === b ? 0 : -1; });
+      });
+      colWrap.appendChild(b);
+      cols.push(b);
+      cells.push(col);
+    });
+    heatGrid.appendChild(hours);
+    heatGrid.appendChild(colWrap);
+    hours.style.height = heatGrid.querySelector(".day").offsetHeight + "px";
+    // Today is at the right; on a screen too narrow for every day, start there.
+    colWrap.scrollLeft = colWrap.scrollWidth;
+  } else {
+    heatGrid.className += " empty";
+    heatGrid.textContent = "No response here carries a timestamp, so there is nothing to place.";
+  }
+
+  // Every label it can fit, counted back from today so today always has one.
+  // Measured, because a guessed text width is wrong in one direction or the
+  // other.
+  function thinLabels() {
+    if (cols.length < 2) return;
+    var step = cols[1].offsetLeft - cols[0].offsetLeft, w = 0;
+    cols.forEach(function (b) {
+      var r = document.createRange();
+      r.selectNodeContents(b.lastChild);
+      w = Math.max(w, r.getBoundingClientRect().width);
+    });
+    var stride = Math.max(1, Math.ceil((w + 6) / step)), last = cols.length - 1;
+    cols.forEach(function (b, i) {
+      var fits = b.offsetLeft - cols[0].offsetLeft + b.offsetWidth - w >= 0;
+      b.lastChild.style.visibility = (last - i) % stride === 0 && fits ? "" : "hidden";
+    });
+  }
+  thinLabels();
+  addEventListener("resize", thinLabels);
+
+  // Colour by rank among the hours that had any, in four steps, the busiest
+  // quarter darkest. Spend is heavy-tailed: on a linear scale one long
+  // afternoon would leave every other hour in the faintest step. What each
+  // step spans is in the scale's tips, so the rank never stands in for a
+  // number.
+  function drawHeat(shown) {
+    segs.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-m") === measure ? "true" : "false");
+    });
+    if (!cols.length) return;
+    var at = MEASURES[measure], n = heatDays.length * 24;
+    var sum = [], who = [], daySum = [], dayWho = [];
+    for (var c = 0; c < n; c++) { sum.push(0); who.push(0); }
+    for (var d = 0; d < heatDays.length; d++) { daySum.push(0); dayWho.push(0); }
+    shown.forEach(function (ok, i) {
+      if (!ok) return;
+      var seen = {};
+      HEAT.rows[i].forEach(function (cell) {
+        var v = cell[at];
+        if (!v) return;
+        var day = Math.floor(cell[0] / 24);
+        sum[cell[0]] += v;
+        who[cell[0]]++;
+        daySum[day] += v;
+        if (!seen[day]) { seen[day] = true; dayWho[day]++; }
+      });
+    });
+    var vals = sum.filter(function (v) { return v > 0; }).sort(function (a, b) { return a - b; });
+    function level(v) {
+      if (!v) return 0;
+      var lo = 0, hi = vals.length;
+      while (lo < hi) {
+        var mid = (lo + hi) >> 1;
+        if (vals[mid] <= v) lo = mid + 1; else hi = mid;
+      }
+      return Math.ceil(4 * lo / vals.length);
+    }
+    var spans = [null, null, null, null, null];
+    for (c = 0; c < n; c++) {
+      var day = Math.floor(c / 24), h = c % 24, v = sum[c], l = level(v);
+      var el = cells[day][h];
+      el.className = l ? "l" + l : "";
+      if (l) {
+        var sp = spans[l] || (spans[l] = [v, v]);
+        if (v < sp[0]) sp[0] = v;
+        if (v > sp[1]) sp[1] = v;
+      }
+      el.setAttribute("data-tip", dayName(day) + ", " + two(h) + ":00–" + two(h + 1) + ":00\n" +
+        (v ? amount(v) + " in " + sessionsText(who[c]) : "nothing"));
+    }
+    // The grid's one tab stop is the picked day, else today, unless focus is
+    // already in the grid, where the focus handler keeps it.
+    if (!colWrap.contains(document.activeElement)) {
+      var stop = selDay >= 0 ? selDay : cols.length - 1;
+      cols.forEach(function (b, d) { b.tabIndex = d === stop ? 0 : -1; });
+    }
+    cols.forEach(function (b, d) {
+      var on = d === selDay;
+      b.classList.toggle("sel", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      dayTips[d] = dayName(d) + "\n" +
+        (daySum[d] ? amount(daySum[d]) + " in " + sessionsText(dayWho[d]) : "nothing");
+    });
+    colWrap.classList.toggle("picking", selDay >= 0);
+
+    heatScale.textContent = "";
+    var lessEl = document.createElement("span");
+    lessEl.textContent = "less";
+    heatScale.appendChild(lessEl);
+    for (var k = 0; k <= 4; k++) {
+      var sw = document.createElement("i");
+      if (k) sw.className = "l" + k;
+      sw.setAttribute("data-tip", k === 0 ? "No response in the hour" :
+        spans[k] ? (spans[k][0] === spans[k][1] ? amount(spans[k][0], true) :
+          amount(spans[k][0], true).replace(/ .*/, "") + " – " + amount(spans[k][1], true)) + " in an hour" :
+        "No hour falls in this step");
+      heatScale.appendChild(sw);
+    }
+    var moreEl = document.createElement("span");
+    moreEl.textContent = "more";
+    heatScale.appendChild(moreEl);
+
+    if (selDay >= 0) {
+      dayChip.hidden = false;
+      dayChip.textContent = dayName(selDay, true) + "  \u2715";
+      dayChip.setAttribute("aria-label", "Showing " + dayName(selDay) + " only; show every day");
+    } else {
+      dayChip.hidden = true;
+    }
+  }
+  segs.forEach(function (b) {
+    b.addEventListener("click", function () {
+      measure = b.getAttribute("data-m");
+      apply();
+    });
+  });
+  dayChip.addEventListener("click", function () {
+    selDay = -1;
+    apply();
+  });
+
   function reorder() {
     var col = SORTS.indexOf(sortCol);
     var seq = rows.map(function (_, i) { return i; });
@@ -832,9 +1123,14 @@ td.nt a:hover{border-bottom-color:currentColor}
 
   function apply() {
     var query = q.value.trim().toLowerCase();
-    var shown = 0;
+    var shown = 0, searched = [];
     rows.forEach(function (r, i) {
-      var ok = (!query || matches(query, hay[i])) && !(hideEmpty.checked && spentNothing[i]);
+      // The heatmap adds up what the search leaves, and the day picked in it
+      // narrows the table further. Were the heatmap to follow the day too,
+      // picking one would redraw the others from that day's sessions alone.
+      var found = (!query || matches(query, hay[i])) && !(hideEmpty.checked && spentNothing[i]);
+      searched.push(found);
+      var ok = found && (selDay < 0 || !!rowDays[i][selDay]);
       r.hidden = !ok;
       if (ok) shown++;
       // Carry the query and the order into the session link, so its back
@@ -851,6 +1147,7 @@ td.nt a:hover{border-bottom-color:currentColor}
     // a question the list is answering — the two controls that hold them back
     // are both in view, and either one says what it is doing.
     count.textContent = shown + (shown === 1 ? " session" : " sessions");
+    drawHeat(searched);
     // A row that was hidden measured nothing when it was last looked at, so
     // whether its cells are cut off is only known once it is showing.
     markClipped();
@@ -868,6 +1165,8 @@ td.nt a:hover{border-bottom-color:currentColor}
     if (query) params.set("q", q.value.trim()); else params.delete("q");
     // The box is ticked by default, so the parameter records the other state.
     if (hideEmpty.checked) params.delete("empty"); else params.set("empty", "1");
+    if (selDay >= 0) params.set("day", heatDays[selDay]); else params.delete("day");
+    if (measure !== "tokens") params.set("heat", measure); else params.delete("heat");
     if (sortCol) {
       params.set("sort", sortCol);
       params.set("dir", sortDesc ? "desc" : "asc");
@@ -886,6 +1185,8 @@ td.nt a:hover{border-bottom-color:currentColor}
   var at = new URL(location.href).searchParams;
   if (at.get("q")) q.value = at.get("q");
   if (at.get("empty") === "1") hideEmpty.checked = false;
+  if (heatDays.indexOf(at.get("day")) >= 0) selDay = heatDays.indexOf(at.get("day"));
+  if (Object.prototype.hasOwnProperty.call(MEASURES, at.get("heat"))) measure = at.get("heat");
   if (SORTS.indexOf(at.get("sort")) >= 0) {
     sortCol = at.get("sort");
     sortDesc = at.get("dir") !== "asc";

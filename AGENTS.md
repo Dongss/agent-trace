@@ -297,7 +297,8 @@ Code that ignores one produces a timeline that looks right and is wrong.
   could matter. The server caches scans by path, size and mtime, of the
   session's file and each of its subagents' — a background subagent grows its
   own file while the session's sits still — 1.9s for the first index load of
-  911 MB, 45ms after.
+  911 MB, 45ms after. The agreement covers where each response lands in time
+  as well as what it counts: the listing's heatmap draws `Scan`'s slots.
 
 ## The clock
 
@@ -419,6 +420,41 @@ Code that ignores one produces a timeline that looks right and is wrong.
   states. Cursor keeps per-project directories under `~/.cursor` with no
   per-session transcript identified; Qwen Code under `~/.qwen` was not
   surveyed.
+
+- **The heatmap adds up what the search leaves, in the reader's hours.**
+  `Scan` keeps each response in a quarter-hour slot, since zones sit a
+  whole number of quarter hours from UTC but not always of hours (+5:30,
+  +5:45). The server places the slots in local days and hours; the script
+  only sums the rows the search leaves and colours them. It follows the
+  search and not the day picked in it, or picking one would redraw the
+  others from that day's sessions alone. Total tokens is the default
+  measure, responses and output tokens one click away, and `?day=` and
+  `?heat=` travel with the rest of the view. A click on an hour picks its
+  day. Under a pointer a column is all hours, the gaps between them
+  included, or the day's tip flashed up for a pixel between two; the day's
+  own tip is the keyboard's alone.
+
+- **Heat is coloured by rank, and the scale says what each step spans.**
+  Spend is heavy-tailed: on a linear scale one long afternoon leaves every
+  other hour in the faintest step. Four steps of `--seq-1`…`--seq-4`, the
+  busiest quarter darkest, validated as an ordinal ramp in both modes; in
+  dark the most is the brightest. An hour with nothing is `--grid`, not a
+  step.
+
+- **The heatmap draws only whole days.** Claude Code deletes a session once
+  it has gone `cleanupPeriodDays` without a write, 30 days unless changed,
+  and a session can start well before its file's last write: responses
+  span 52 days on the survey machine, from 6 sessions begun before the
+  oldest last write. A day a cleanup may have taken sessions from would
+  read as a quiet one, so the grid starts the day after that last write —
+  the last 30 days there. A dotted line over the doubtful days was tried
+  and dropped: it marked them without making them any less misleading.
+  There is no note under the grid, by request; the days and hours in its
+  tips are the reader's, as every time on the listing is. The period is
+  not read, since any settings file can set it, but it is a whole number of
+  days and at least one, so today is always drawn. Days with no session are
+  idle, not unknown, so the grid runs to today. It stops at 90 days rather
+  than shrinking every column to a sliver.
 
 - **Versions sort numerically per component.** A string sort puts 2.1.98 after
   2.1.231, and a "2.1.231 → 2.1.274" range comes out backwards.

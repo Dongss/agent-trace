@@ -209,3 +209,25 @@ func TestListingIDAndNameColumns(t *testing.T) {
 		}
 	}
 }
+
+// The heatmap sits above the search it follows, carries the data it draws,
+// and offers the three measures, total tokens first.
+func TestListingHasTheHeatmap(t *testing.T) {
+	body := get(t, newMux(fixtureRoot(t)), "/").Body.String()
+	iHeat, iTools := strings.Index(body, `<section class="heat"`), strings.Index(body, `<div class="tools">`)
+	if iHeat < 0 || iTools < 0 || iHeat > iTools {
+		t.Errorf("the heatmap is not above the search (heat at %d, tools at %d)", iHeat, iTools)
+	}
+	for _, want := range []string{
+		`var HEAT = {"days":["`, // the fixture's one response has a timestamp
+		`data-m="tokens"`, `data-m="responses"`, `data-m="output"`,
+		`id="day-chip"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the listing does not carry %q", want)
+		}
+	}
+	if i, j := strings.Index(body, `data-m="tokens"`), strings.Index(body, `data-m="responses"`); i > j {
+		t.Error("total tokens is not the first measure")
+	}
+}

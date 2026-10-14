@@ -89,6 +89,8 @@ func newMux(defaultAgent agent.Agent) *http.ServeMux {
 			ThemeJS:  template.JS(render.ThemeJS()),
 			TipCSS:   template.CSS(render.TipCSS()),
 			TipJS:    template.JS(render.TipJS()),
+			CopyCSS:  template.CSS(render.CopyCSS()),
+			CopyJS:   template.JS(render.CopyJS()),
 			Version:  version.String(),
 			Agent:    a,
 			Agents:   agent.List(),
@@ -483,6 +485,8 @@ type indexData struct {
 	ThemeJS  template.JS
 	TipCSS   template.CSS
 	TipJS    template.JS
+	CopyCSS  template.CSS
+	CopyJS   template.JS
 	Version  string
 	Agent    agent.Agent
 	Agents   []agent.Agent
@@ -528,9 +532,11 @@ var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
 <title>agtrace</title>
 <script>{{.ThemeJS}}</script>
 <script>{{.TipJS}}</script>
+<script>{{.CopyJS}}</script>
 <style>
 {{.ThemeCSS}}
 {{.TipCSS}}
+{{.CopyCSS}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--plane);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
  padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px)}
@@ -584,22 +590,29 @@ th[data-sort][data-dir]{color:var(--ink)}
 th[data-sort][data-dir="desc"]::after{content:"\2193";opacity:1}
 th[data-sort][data-dir="asc"]::after{content:"\2191";opacity:1}
 tr:last-child td{border-bottom:0}
-/* One column, two lines: what the CLI calls the session over what the model
-   called it. They are different fields and the heading says so, but stacking
-   them is what lets both be readable — side by side, neither column was wide
-   enough for the values that actually occur. Each line clips on its own. */
+/* The id on its own, to read and to copy; it is not a link, so each row has
+   exactly one. Centred in the row like the figures, and never clipped. */
+td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink-2);
+ font-variant-numeric:normal;padding-right:4px}
+td.id .sid{vertical-align:middle}
+td.id button.copy{margin-left:2px}
+/* Two lines, one link. On top the session's label, which is the link: its
+   name where the CLI gave it one, else the title the model wrote. Under it,
+   smaller, the title when the line above is taken by the name. They are
+   different fields and both are shown, but as a label and its detail. */
 td.nt{font-variant-numeric:normal;max-width:340px;line-height:1.35}
-td.nt .nm,td.nt .ti{overflow:hidden;text-overflow:ellipsis}
-/* A session with no title leaves the line blank rather than printing a dash,
-   but the line still has to take up its height or the rows come out ragged. */
-td.nt .ti{color:var(--ink-2);font-size:12px;min-height:1.35em}
+td.nt .label{display:flex;align-items:baseline;gap:6px;overflow:hidden}
+td.nt .label a{min-width:0;overflow:hidden;text-overflow:ellipsis}
+td.nt .label a.none{color:var(--muted);font-weight:normal}
+/* The second line takes up its height even when there is nothing to put in
+   it, or the rows come out ragged. */
+td.nt .ti{color:var(--ink-2);font-size:12px;min-height:1.35em;overflow:hidden;text-overflow:ellipsis}
 td.cwd{font-variant-numeric:normal;color:var(--ink-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
  font-size:11.5px;max-width:280px;overflow:hidden;text-overflow:ellipsis}
 td.nt a{color:inherit;text-decoration:none;border-bottom:1px solid var(--border);font-weight:550}
 td.nt a:hover{border-bottom-color:currentColor}
-td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink-2)}
-.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--st-critical);margin-right:6px;
- vertical-align:1px;position:relative}
+.dot{flex:none;align-self:center;width:6px;height:6px;border-radius:50%;background:var(--st-critical);
+ position:relative}
 /* Six pixels is a mark, not a target: the pointer gets a margin round it. */
 .dot::after{content:"";position:absolute;inset:-7px}
 .note{margin-top:16px;color:var(--ink-2);font-size:12px}
@@ -650,6 +663,7 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
 <div class="count" id="count"></div>
 <div class="scroll">
 <table id="sessions"><thead><tr>
+  <th>ID</th>
   <th class="t-nt">Name / title</th>
   <th data-sort="tokens">Tokens</th><th data-sort="cost">Cost</th>
   <th data-sort="started">Started</th>
@@ -657,9 +671,17 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
   <th>Working directory</th>
 </tr></thead><tbody>
 {{range .Sessions}}<tr data-s="{{.Title}}|{{.Name}}|{{.CWD}}|{{.ID}}" data-n="{{sortKeys .}}">
+  {{- /* The copy button goes in after .sid, from copy.js: without the
+         script there is nothing it could do. */}}
+  <td class="id"><span class="sid" data-id="{{.ID}}">{{short .ID}}</span></td>
   <td class="nt">
-    <div class="nm">{{if live .}}<span class="dot" data-tip="Touched in the last two minutes: probably still being written."></span>{{end}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{with .Name}}{{.}}{{else}}{{short .ID}}{{end}}</a></div>
-    <div class="ti">{{with .Title}}{{.}}{{end}}</div>
+    {{- /* A session with neither name nor title still needs something to
+           click, and says what it lacks rather than borrowing a label. */}}
+    <div class="label">{{if live .}}<span class="dot" data-tip="Touched in the last two minutes: probably still being written."></span>{{end}}
+      {{- if .Name}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{.Name}}</a>
+      {{- else if .Title}}<a href="/s/{{.ID}}?agent={{$.Agent.ID}}">{{.Title}}</a>
+      {{- else}}<a class="none" href="/s/{{.ID}}?agent={{$.Agent.ID}}">(untitled)</a>{{end}}</div>
+    <div class="ti">{{if .Name}}{{.Title}}{{end}}</div>
   </td>
   <td>{{tokens .}}</td>
   <td>{{cost .CostUSD}}</td>
@@ -673,12 +695,17 @@ td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;col
 <script>
 (function () {
   "use strict";
+  document.querySelectorAll("#sessions td.id .sid").forEach(function (n) {
+    n.parentNode.insertBefore(window.agtraceCopy.button(n.getAttribute("data-id"), "session id"),
+      n.nextSibling);
+  });
+
   // Reveal the full text of a clipped cell on hover. Only cells that were
   // actually cut off get a tip: a box repeating a directory already in full
   // view word for word, as the template's used to on every row, says
   // nothing.
   function markClipped() {
-    document.querySelectorAll("#sessions td.nt .nm, #sessions td.nt .ti, #sessions td.cwd")
+    document.querySelectorAll("#sessions td.nt .label a, #sessions td.nt .ti, #sessions td.cwd")
       .forEach(function (n) {
         if (n.scrollWidth > n.clientWidth + 1) n.setAttribute("data-tip", n.textContent.trim());
         else n.removeAttribute("data-tip");

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Dongss/agent-trace/internal/agent"
+	"github.com/Dongss/agent-trace/internal/reader/claudecode"
 )
 
 // sessionID is the uuid the fixture transcript is filed under. Discovery takes
@@ -158,5 +159,53 @@ func TestListingUsesTheSharedTips(t *testing.T) {
 	}
 	if strings.Contains(body, ` title="`) {
 		t.Error("the listing still has a title tooltip in its markup")
+	}
+}
+
+// The listing leads with two columns: the short id, which copies whole and is
+// not a link, then the one link in the row — the name, else the title — with
+// the title under it only when the name has taken the link.
+func TestListingIDAndNameColumns(t *testing.T) {
+	body := get(t, newMux(fixtureRoot(t)), "/").Body.String()
+	for _, want := range []string{
+		"<th>ID</th>\n  <th class=\"t-nt\">Name / title</th>",
+		"window.agtraceCopy = {",
+		`agtraceCopy.button(n.getAttribute("data-id"), "session id")`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the listing does not carry %q", want)
+		}
+	}
+
+	const named, titled, bare = "11111111-aaaa-0000-0000-000000000000",
+		"22222222-bbbb-0000-0000-000000000000", "33333333-cccc-0000-0000-000000000000"
+	data := indexData{Agent: agent.Default(), Sessions: []claudecode.Session{
+		{ID: named, Totals: &claudecode.Totals{AgentName: "webapp", Title: "a made-up title"}},
+		{ID: titled, Totals: &claudecode.Totals{Title: "only a title"}},
+		{ID: bare},
+	}}
+	var b strings.Builder
+	if err := indexTmpl.Execute(&b, data); err != nil {
+		t.Fatal(err)
+	}
+	rows := strings.Split(b.String(), "<tr data-s=")[1:]
+	if len(rows) != 3 {
+		t.Fatalf("%d rows, want 3", len(rows))
+	}
+	for i, c := range []struct{ id, label, title string }{
+		{named, `">webapp</a></div>`, `<div class="ti">a made-up title</div>`},
+		{titled, `">only a title</a></div>`, `<div class="ti"></div>`},
+		{bare, `<a class="none" href="/s/` + bare + `?agent=claude-code">(untitled)</a></div>`, `<div class="ti"></div>`},
+	} {
+		row, _, _ := strings.Cut(rows[i], "</tr>")
+		if n := strings.Count(row, "<a "); n != 1 {
+			t.Errorf("row %d has %d links, want 1", i, n)
+		}
+		id := `<td class="id"><span class="sid" data-id="` + c.id + `">` + c.id[:8] + `</span></td>`
+		for _, want := range []string{id, c.label, c.title} {
+			if !strings.Contains(row, want) {
+				t.Errorf("row %d: no %q in\n%s", i, want, row)
+			}
+		}
 	}
 }

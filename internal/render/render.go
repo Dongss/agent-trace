@@ -28,7 +28,7 @@ import (
 	"github.com/Dongss/agent-trace/internal/timeline"
 )
 
-//go:embed page.html theme.css theme.js tip.css tip.js
+//go:embed page.html theme.css theme.js tip.css tip.js copy.css copy.js
 var assets embed.FS
 
 // ThemeCSS and ThemeJS are the palette and the theme toggle, exported so every
@@ -41,6 +41,10 @@ func ThemeJS() string  { return mustAsset("theme.js") }
 // and the session page show it the same way, from one copy.
 func TipCSS() string { return mustAsset("tip.css") }
 func TipJS() string  { return mustAsset("tip.js") }
+
+// CopyCSS and CopyJS are the copy button, shared for the same reason.
+func CopyCSS() string { return mustAsset("copy.css") }
+func CopyJS() string  { return mustAsset("copy.js") }
 
 func mustAsset(name string) string {
 	b, err := assets.ReadFile(name)
@@ -109,8 +113,11 @@ func Page(run *event.Run, opt Options) ([]byte, error) {
 	page = strings.Replace(page, "/*__AGTRACE_THEME_JS__*/", ThemeJS(), 1)
 	page = strings.Replace(page, "/*__AGTRACE_TIP_CSS__*/", TipCSS(), 1)
 	page = strings.Replace(page, "/*__AGTRACE_TIP_JS__*/", TipJS(), 1)
+	page = strings.Replace(page, "/*__AGTRACE_COPY_CSS__*/", CopyCSS(), 1)
+	page = strings.Replace(page, "/*__AGTRACE_COPY_JS__*/", CopyJS(), 1)
 	for _, marker := range []string{"/*__AGTRACE_THEME_CSS__*/", "/*__AGTRACE_THEME_JS__*/",
-		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/"} {
+		"/*__AGTRACE_TIP_CSS__*/", "/*__AGTRACE_TIP_JS__*/",
+		"/*__AGTRACE_COPY_CSS__*/", "/*__AGTRACE_COPY_JS__*/"} {
 		if strings.Contains(page, marker) {
 			return nil, fmt.Errorf("render: %s was not substituted", marker)
 		}

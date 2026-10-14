@@ -1,0 +1,19 @@
+/* The copy button copy.js makes, the same on every page. The icon is drawn
+   from two borders rather than a glyph or an image: a glyph depends on which
+   fonts the machine has, and an image would be one more thing for the page to
+   carry or fetch. Two sheets, the back one showing only its top and left. */
+button.copy { position:relative; flex:none; align-self:center; display:inline-block;
+  width:20px; height:20px; padding:0; margin:0; border:0; border-radius:5px;
+  background:none; color:var(--muted); cursor:pointer; vertical-align:middle; }
+button.copy:hover { color:var(--ink); background:var(--grid); }
+button.copy:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+button.copy::before, button.copy::after { content:""; position:absolute; box-sizing:border-box;
+  width:9px; height:10px; border:1.5px solid currentColor; border-radius:2px; }
+button.copy::before { left:4px; top:3px; border-right:0; border-bottom:0; border-radius:2px 0 0 0; }
+button.copy::after { left:7px; top:6px; }
+/* Copied: the sheets become a tick for a moment, the only answer a click
+   gets — the button has no hover text. */
+button.copy.copied { color:var(--st-ok); }
+button.copy.copied::before { left:7px; top:4px; width:6px; height:10px; border:solid currentColor;
+  border-width:0 2px 2px 0; border-radius:0; transform:rotate(45deg); }
+button.copy.copied::after { display:none; }

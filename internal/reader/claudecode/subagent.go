@@ -23,10 +23,12 @@ import (
 //
 // Every entry in it carries isSidechain, the agentId and the session's own
 // sessionId; the session links to it only through the spawning call's result
-// (toolUseResult.agentId), on an Agent call or on a Skill that forks one. No
-// message id or tool call id appeared in both a session and its subagents
-// across the three sessions surveyed with any, so adding them up counts each
-// response once. Left out, a subagent's tokens simply vanish from the session:
+// (toolUseResult.agentId), on an Agent call or on a Skill that forks one.
+// Apart from the one entry a fork copies (see readSubagents), no message id or
+// tool call id appeared in both a session and its subagents, so adding them up
+// counts each response once. A subagent's own subagents (spawnDepth 2, naming
+// a parentAgentId) are written to the same directory, and read the same way.
+// Left out, a subagent's tokens simply vanish from the session:
 // in one surveyed session its three subagents put 15.2M tokens through the
 // model against the session's own 7.6M.
 
@@ -98,22 +100,34 @@ func readSidecar(transcript string) sidecar {
 // with Seq moved past everything already read, so Seq stays unique across the
 // session; Step.Agent says whose file order it is.
 //
+// A forked subagent (agentType "fork", surveyed on 2.1.307–2.1.310) starts
+// from the session's context, and its file opens with a copy of the entry
+// whose Agent call spawned it: the same message id, usage and tool_use id as
+// in the session's file, under a uuid and a time of its own. All 9 forks
+// surveyed did — four of them from one response, four from another — and so
+// 9 of the session's responses and Agent calls were counted twice. An
+// assistant entry whose message id an earlier file carried is skipped: seen
+// holds the session's ids, and each subagent's are added once it is read.
+//
 // A subagent's compactions are its own context being cut, not the session's,
 // and are counted as skipped rather than put among the session's. None was
 // surveyed.
-func readSubagents(run *event.Run, sessionPath string, opt Options) error {
+func readSubagents(run *event.Run, sessionPath string, opt Options, seen map[string]bool) error {
 	files := subagentFiles(sessionPath)
 	if len(files) == 0 {
 		return nil
 	}
 	base := maxSeq(run)
 	for _, f := range files {
-		sub, err := readSubagent(f.Path, opt)
+		sub, ids, err := readSubagent(f.Path, opt, seen)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue // gone between listing the directory and opening it
 		}
 		if err != nil {
 			return err
+		}
+		for id := range ids {
+			seen[id] = true
 		}
 		id := agentID(f.Path)
 		side := readSidecar(f.Path)
@@ -144,20 +158,22 @@ func readSubagents(run *event.Run, sessionPath string, opt Options) error {
 	return nil
 }
 
-func readSubagent(path string, opt Options) (*event.Run, error) {
+// readSubagent parses one subagent's file, skipping what earlier files said,
+// and returns the message ids it carried.
+func readSubagent(path string, opt Options, earlier map[string]bool) (*event.Run, map[string]bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	sub := &event.Run{Skipped: map[string]int{}}
-	p := newParser(sub, opt)
+	p := newParser(sub, opt, earlier)
 	p.sidechain = true
 	if err := p.read(f, path); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.finish()
-	return sub, nil
+	return sub, p.messages, nil
 }
 
 // maxSeq is the highest Seq anything in run was given, which is at least the

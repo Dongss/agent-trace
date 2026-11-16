@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,11 +63,12 @@ func ReadFile(path string, opt Options) (*event.Run, error) {
 		return nil, err
 	}
 	defer f.Close()
-	run, err := Read(f, path, opt)
+	opt = opt.withDefaults()
+	run, p, err := readSession(f, path, opt)
 	if err != nil {
 		return nil, err
 	}
-	if err := readSubagents(run, path, opt.withDefaults()); err != nil {
+	if err := readSubagents(run, path, opt, p.messages); err != nil {
 		return nil, err
 	}
 	return run, nil
@@ -75,28 +77,35 @@ func ReadFile(path string, opt Options) (*event.Run, error) {
 // Read parses a transcript from r. path is recorded on the Run and used for
 // nothing else.
 func Read(r io.Reader, path string, opt Options) (*event.Run, error) {
-	opt = opt.withDefaults()
+	run, _, err := readSession(r, path, opt.withDefaults())
+	return run, err
+}
 
+func readSession(r io.Reader, path string, opt Options) (*event.Run, *parser, error) {
 	run := &event.Run{
 		Source:  event.SourceClaudeCode,
 		Path:    textfmt.Path(path),
 		Skipped: map[string]int{},
 	}
 
-	p := newParser(run, opt)
+	p := newParser(run, opt, nil)
 	if err := p.read(r, path); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.finish()
-	return run, nil
+	return run, p, nil
 }
 
-func newParser(run *event.Run, opt Options) *parser {
+// newParser starts a parser for one file. earlier is the message ids the
+// files read before it carried, and is nil for a session's own transcript.
+func newParser(run *event.Run, opt Options, earlier map[string]bool) *parser {
 	return &parser{
 		opt:      opt,
 		run:      run,
 		pending:  map[string]*pendingTool{},
 		usage:    map[string]*event.Usage{},
+		earlier:  earlier,
+		messages: map[string]bool{},
 		cwdCount: map[string]int{},
 		versions: map[string]bool{},
 		surfaces: map[string]map[string]bool{},
@@ -151,6 +160,12 @@ type parser struct {
 	// written as: the first entry of a message.id gets the Usage, and later
 	// ones only ever raise its Output. See repeatUsage.
 	usage map[string]*event.Usage
+	// earlier is the message ids of the files read before this one, and
+	// messages those of this one. A forked subagent's file opens with a copy
+	// of the response that spawned it, and that response was the session's;
+	// see readSubagents.
+	earlier  map[string]bool
+	messages map[string]bool
 	// sidechain is set while reading a subagent's transcript, where every
 	// user-role entry was written by the agent that spawned it.
 	sidechain bool
@@ -280,6 +295,15 @@ func (p *parser) assistant(seq int, e *entry) {
 		p.run.Skipped["assistant(no message)"]++
 		return
 	}
+	if id := e.Message.ID; id != "" {
+		if p.earlier[id] {
+			// Its tokens and its tool calls are already in the file that
+			// made it; read again here they would count twice.
+			p.run.Skipped["assistant(copied)"]++
+			return
+		}
+		p.messages[id] = true
+	}
 	blocks := decodeBlocks(e.Message.Content)
 
 	// Usage belongs to the response, not to the block, and Claude Code writes
@@ -355,9 +379,14 @@ func (p *parser) user(seq int, e *entry) {
 	// A plain string content is usually a human turn, but the CLI writes its
 	// own entries the same way. Where the entry says who wrote it, that
 	// decides; otherwise typedByUser tells them apart.
+	//
+	// The summary a compaction leaves is one of them: the entry after every
+	// compact_boundary, a bare string with no origin and no wrapper, told
+	// apart only by isCompactSummary. All 39 surveyed on 2.1.305–2.1.323
+	// were read as prompts.
 	var text string
 	if err := json.Unmarshal(e.Message.Content, &text); err == nil {
-		typed := !e.IsMeta && typedByUser(text)
+		typed := !e.IsMeta && !e.IsCompactSummary && typedByUser(text)
 		if e.Origin != nil && e.Origin.Kind != "" {
 			typed = e.Origin.Kind == "human"
 		}
@@ -373,7 +402,7 @@ func (p *parser) user(seq int, e *entry) {
 		case "text":
 			// Tool companions and meta notices are not human turns; a genuine
 			// multi-block user message is.
-			if e.IsMeta || e.SourceToolUseID != "" {
+			if e.IsMeta || e.IsCompactSummary || e.SourceToolUseID != "" {
 				continue
 			}
 			typed := typedByUser(b.Text)
@@ -454,6 +483,10 @@ func (p *parser) attachment(seq int, e *entry) {
 //
 // The list is what was surveyed. A wrapper a later release adds counts as a
 // prompt until it is added here, unless the entry carries an origin.
+//
+// A slash command can also arrive with no wrapper at all: a typed /compact is
+// written as the bare command, no origin, just before its compact_boundary —
+// 5 of 5 on 2.1.305–2.1.319. bareCommand catches that shape.
 var cliWrappers = []string{
 	"<command-name>", "<command-message>",
 	"<local-command-stdout>", "<local-command-caveat>",
@@ -477,8 +510,13 @@ func typedByUser(text string) bool {
 			return false
 		}
 	}
-	return true
+	return !bareCommand.MatchString(t)
 }
+
+// bareCommand is a slash command as typed: a slash, a command name, then
+// arguments or nothing. A path is not one — "/Users/…" continues with a
+// second slash.
+var bareCommand = regexp.MustCompile(`^/[A-Za-z][A-Za-z0-9_.:-]*(\s|$)`)
 
 // syntheticModel is the model Claude Code names on a message it wrote itself
 // rather than received from the API, with every usage field zero: an API

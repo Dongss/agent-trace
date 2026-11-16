@@ -363,6 +363,41 @@ func TestOriginDecidesWhereAnEntryStatesIt(t *testing.T) {
 	}
 }
 
+// A compaction writes two user-role entries nobody typed, neither with an
+// origin or a wrapper: the /compact that asked for it as the bare command,
+// and after the boundary the summary it left, marked only by
+// isCompactSummary. Both were read as prompts — 44 on the survey machine.
+// The shapes are 2.1.305–2.1.323's; the values are made up.
+func TestACompactionIsNotAPrompt(t *testing.T) {
+	run := read(t,
+		`{"type":"user","uuid":"u1","timestamp":"2026-02-04T08:00:00.000Z","version":"2.1.318","origin":{"kind":"human"},"turnOrigin":"human","message":{"role":"user","content":"tidy the module"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-02-04T08:30:00.000Z","version":"2.1.318","message":{"role":"user","content":"/compact"}}`,
+		`{"type":"system","subtype":"compact_boundary","uuid":"c1","parentUuid":null,"logicalParentUuid":"u2","timestamp":"2026-02-04T08:31:00.000Z","content":"Conversation compacted","compactMetadata":{"trigger":"manual","preTokens":180000,"postTokens":9000,"durationMs":60000}}`,
+		`{"type":"user","uuid":"u3","parentUuid":"c1","timestamp":"2026-02-04T08:31:00.100Z","version":"2.1.318","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"Summary of the earlier part: the module was tidied."}}`,
+		`{"type":"user","uuid":"u4","timestamp":"2026-02-04T08:40:00.000Z","version":"2.1.318","message":{"role":"user","content":"/compact keep the test names"}}`,
+		// A path is not a command, typed with no origin as on older releases.
+		`{"type":"user","uuid":"u5","timestamp":"2026-02-04T08:50:00.000Z","message":{"role":"user","content":"/tmp/a.go fails to build"}}`,
+	)
+	var prompts []string
+	notes := map[string]bool{}
+	for i := range run.Steps {
+		switch st := &run.Steps[i]; st.Kind {
+		case event.KindPrompt:
+			prompts = append(prompts, st.Text)
+		case event.KindNote:
+			notes[st.UUID] = st.HasTime
+		}
+	}
+	if len(prompts) != 2 || prompts[0] != "tidy the module" || prompts[1] != "/tmp/a.go fails to build" {
+		t.Errorf("prompts %q, want the typed message and the path", prompts)
+	}
+	for _, id := range []string{"u2", "u3", "u4"} {
+		if has, ok := notes[id]; !ok || !has {
+			t.Errorf("%s: not a timed note", id)
+		}
+	}
+}
+
 // Typed while the model is working, a message is queued and handed over
 // mid-turn as a queued_command attachment rather than written as a user
 // entry, and it is still a prompt. The same queue carries task notifications

@@ -3,6 +3,7 @@ package claudecode
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +156,93 @@ func TestScanAgreesWithTheFullParserAcrossSubagents(t *testing.T) {
 	if got.Tokens != full.All || got.Responses != full.Responses || got.ToolCalls != full.ToolCalls {
 		t.Errorf("scan %+v/%d/%d, full parse %+v/%d/%d",
 			got.Tokens, got.Responses, got.ToolCalls, full.All, full.Responses, full.ToolCalls)
+	}
+}
+
+// A fork starts from the session's context, and its file opens with a copy of
+// the entry whose Agent call spawned it: same message id, same usage, same
+// tool_use id, a uuid and a time of its own. Two forks from one response each
+// copy their own call. The shapes are 2.1.307–2.1.310's; the values are made
+// up.
+var (
+	forkParentLines = []string{
+		`{"type":"user","uuid":"u1","timestamp":"2026-02-03T09:00:00.000Z","sessionId":"s2","origin":{"kind":"human"},"message":{"role":"user","content":"try both fixes"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-02-03T09:00:20.000Z","sessionId":"s2","message":{"id":"m1","model":"claude-opus-5-5","role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_f1","name":"Agent","input":{"description":"Try the first fix","prompt":"Try the first fix.","subagent_type":"fork"}}],"usage":{"input_tokens":3,"cache_creation_input_tokens":400,"cache_read_input_tokens":9000,"output_tokens":120}}}`,
+		`{"type":"assistant","uuid":"a2","timestamp":"2026-02-03T09:00:21.000Z","sessionId":"s2","message":{"id":"m1","model":"claude-opus-5-5","role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_f2","name":"Agent","input":{"description":"Try the second fix","prompt":"Try the second fix.","subagent_type":"fork"}}],"usage":{"input_tokens":3,"cache_creation_input_tokens":400,"cache_read_input_tokens":9000,"output_tokens":120}}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-02-03T09:00:22.000Z","sessionId":"s2","toolUseResult":{"agentId":"f1","status":"async_launched"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_f1","content":"Fork launched."}]}}`,
+		`{"type":"user","uuid":"u3","timestamp":"2026-02-03T09:00:22.500Z","sessionId":"s2","toolUseResult":{"agentId":"f2","status":"async_launched"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_f2","content":"Fork launched."}]}}`,
+	}
+	forkLines = func(agent, use, msg string, out int) []string {
+		return []string{
+			`{"type":"fork-context-ref","agentId":"` + agent + `","parentSessionId":"s2","parentLastUuid":"u1","contextLength":2}`,
+			`{"type":"assistant","uuid":"` + agent + `c","parentUuid":null,"isSidechain":true,"agentId":"` + agent + `","sessionId":"s2","timestamp":"2026-02-03T09:00:23.000Z","message":{"id":"m1","model":"claude-opus-5-5","role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"` + use + `","name":"Agent","input":{"description":"Try a fix","prompt":"Try a fix.","subagent_type":"fork"}}],"usage":{"input_tokens":3,"cache_creation_input_tokens":400,"cache_read_input_tokens":9000,"output_tokens":120}}}`,
+			`{"type":"user","uuid":"` + agent + `u","isSidechain":true,"agentId":"` + agent + `","sessionId":"s2","timestamp":"2026-02-03T09:00:23.100Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"` + use + `","content":"Forked."},{"type":"text","text":"<fork-boilerplate>You are a fork.</fork-boilerplate>"}]}}`,
+			`{"type":"assistant","uuid":"` + agent + `a","isSidechain":true,"agentId":"` + agent + `","sessionId":"s2","timestamp":"2026-02-03T09:00:40.000Z","message":{"id":"` + msg + `","model":"claude-opus-5-5","role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":1,"cache_creation_input_tokens":50,"cache_read_input_tokens":9400,"output_tokens":` + strconv.Itoa(out) + `}}}`,
+		}
+	}
+)
+
+func writeForkSession(t *testing.T) string {
+	t.Helper()
+	proj := filepath.Join(t.TempDir(), "-tmp-proj")
+	subs := filepath.Join(proj, "s2", "subagents")
+	if err := os.MkdirAll(subs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		filepath.Join(proj, "s2.jsonl"):           strings.Join(forkParentLines, "\n") + "\n",
+		filepath.Join(subs, "agent-f1.jsonl"):     strings.Join(forkLines("f1", "tu_f1", "fm1", 30), "\n") + "\n",
+		filepath.Join(subs, "agent-f1.meta.json"): `{"agentType":"fork","isFork":true,"description":"Try the first fix","toolUseId":"tu_f1","spawnDepth":1}`,
+		filepath.Join(subs, "agent-f2.jsonl"):     strings.Join(forkLines("f2", "tu_f2", "fm2", 40), "\n") + "\n",
+		filepath.Join(subs, "agent-f2.meta.json"): `{"agentType":"fork","isFork":true,"description":"Try the second fix","toolUseId":"tu_f2","spawnDepth":1}`,
+	}
+	for p, body := range files {
+		if err := writeFile(p, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(proj, "s2.jsonl")
+}
+
+// The copied entry is the session's response, already counted where it was
+// made. Read again from each fork it counted the response and its Agent call
+// once per fork more; in one surveyed session, 9 responses and 9 tool calls.
+func TestAForkDoesNotRecountTheResponseThatSpawnedIt(t *testing.T) {
+	path := writeForkSession(t)
+	run, err := ReadFile(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tot := timeline.Compute(run)
+	if tot.Responses != 3 {
+		t.Errorf("responses %d, want the session's one and each fork's own", tot.Responses)
+	}
+	if tot.ToolCalls != 2 {
+		t.Errorf("tool calls %d, want the session's two Agent calls", tot.ToolCalls)
+	}
+	want := event.Usage{Input: 3 + 1 + 1, CacheRead: 9000 + 9400 + 9400, CacheWrite: 400 + 50 + 50, Output: 120 + 30 + 40}
+	if tot.All != want {
+		t.Errorf("tokens %+v, want %+v", tot.All, want)
+	}
+	if n := run.Skipped["assistant(copied)"]; n != 2 {
+		t.Errorf("copied entries skipped %d, want one per fork", n)
+	}
+	for _, st := range run.Steps {
+		if st.Tool != nil && (st.Agent != "" || st.Tool.Outcome != event.OutcomeOK) {
+			t.Errorf("Agent call %s in agent %q with outcome %q, want each once, in the session, answered", st.Tool.ID, st.Agent, st.Tool.Outcome)
+		}
+	}
+	if tot.Prompts != 1 {
+		t.Errorf("prompts %d, want the one typed into the session", tot.Prompts)
+	}
+
+	got, err := Scan(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tokens != tot.All || got.Responses != tot.Responses || got.ToolCalls != tot.ToolCalls {
+		t.Errorf("scan %+v/%d/%d, full parse %+v/%d/%d",
+			got.Tokens, got.Responses, got.ToolCalls, tot.All, tot.Responses, tot.ToolCalls)
 	}
 }
 

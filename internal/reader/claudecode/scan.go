@@ -95,6 +95,12 @@ var scanKeys = []string{`"usage"`, `"aiTitle"`, `"customTitle"`, `"agentName"`, 
 type scanState struct {
 	resp    map[string]*scanResp
 	seenUse map[string]bool
+	// fileOf is the file each message id was first seen in, and file the one
+	// being read: an entry whose message an earlier file carried is a fork's
+	// copy of the response that spawned it, skipped as the full parser skips
+	// it.
+	fileOf map[string]int
+	file   int
 	// session is false while reading a subagent's transcript, whose titles and
 	// cost snapshots, had it any, would not be the session's.
 	session bool
@@ -112,12 +118,13 @@ type scanResp struct {
 // the subagents it spawned, as ReadFile does.
 func Scan(path string) (*Totals, error) {
 	out := Totals{Activity: map[int64]*Slot{}}
-	st := scanState{resp: map[string]*scanResp{}, seenUse: map[string]bool{}, session: true}
+	st := scanState{resp: map[string]*scanResp{}, seenUse: map[string]bool{}, fileOf: map[string]int{}, session: true}
 	if err := scanFile(path, &out, &st); err != nil {
 		return nil, err
 	}
 	st.session = false
 	for _, f := range subagentFiles(path) {
+		st.file++
 		err := scanFile(f.Path, &out, &st)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue // as in readSubagents
@@ -200,6 +207,13 @@ func scanLine(s string, out *Totals, st *scanState) {
 	case "assistant":
 		if e.Message == nil {
 			return
+		}
+		if id := e.Message.ID; id != "" {
+			if f, seen := st.fileOf[id]; !seen {
+				st.fileOf[id] = st.file
+			} else if f != st.file {
+				return // a copy; see readSubagents
+			}
 		}
 		// Usage is written on every content block of a response, so it is
 		// counted once per message.id, and a later entry can only raise the

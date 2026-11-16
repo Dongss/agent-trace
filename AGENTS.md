@@ -74,8 +74,9 @@ values and to be honest about what that vendor does not record.
 
 ## Reading a transcript
 
-Traps, measured on real transcripts written by Claude Code 2.1.231–2.1.278.
-Code that ignores one produces a timeline that looks right and is wrong.
+Traps, measured on real transcripts written by Claude Code 2.1.231–2.1.278,
+and re-surveyed on 2.1.284–2.1.325. Code that ignores one produces a timeline
+that looks right and is wrong.
 
 - **Read-only, always.** A transcript is the user's own record of their work.
   Never write, move or "repair" one, and never hold a lock that would block the
@@ -135,9 +136,10 @@ Code that ignores one produces a timeline that looks right and is wrong.
   in a browser-heavy session.
 
 - **An unknown entry type is not an error.** Fifteen top-level types surveyed,
-  most irrelevant, and a release will add more. Skips are counted, not
-  complained about; only a malformed entry of a modelled type is worth a
-  complaint.
+  most irrelevant, and 23 by 2.1.325 — `api-request`, `permission-mode`,
+  `pr-link`, a fork's `fork-context-ref` among the new ones; a release will
+  add more. Skips are counted, not complained about; only a malformed entry
+  of a modelled type is worth a complaint.
 
 - **A user-role entry is not a prompt until it says so.** Claude Code writes
   its own entries as `user`, most as a bare string exactly like a typed turn:
@@ -154,7 +156,12 @@ Code that ignores one produces a timeline that looks right and is wrong.
   command surveyed carried `human`. Without an origin a slash command is not
   a prompt even when it expands into one, the expansion being a meta entry of
   its own; so a session driven by one typed skill read as 0 prompts. One entry
-  is at most one prompt, whatever blocks carry it. And a prompt typed while
+  is at most one prompt, whatever blocks carry it. A compaction writes two
+  more with neither an origin nor a wrapper: the `/compact` that asked for
+  it, as the bare command, and after the boundary the summary it left,
+  marked only by `isCompactSummary` — 44 read as prompts on 2.1.305–2.1.323
+  until both were handled. `bareCommand` is a slash and a command name, so a
+  path typed first is still a prompt. And a prompt typed while
   the model works is not a user entry at all: it is queued (`queue-operation`
   enqueue, then remove) and handed over mid-turn as an `attachment` of type
   `queued_command`, `commandMode` "prompt", carrying the same `origin` and
@@ -198,16 +205,23 @@ Code that ignores one produces a timeline that looks right and is wrong.
   `agentType` and task. The session links to it only through the spawning
   call's `toolUseResult.agentId` — an `Agent` call, or a `Skill` that forks one
   (the tool is `Agent`; none surveyed is called `Task`). Every entry inside
-  carries `isSidechain`, the `agentId` and the parent's `sessionId`; no message
-  or tool id appeared in both files, so adding them counts nothing twice. Left
-  out, a session that fanned out showed 7.6M of the 22.8M tokens it spent.
+  carries `isSidechain`, the `agentId` and the parent's `sessionId`. One
+  entry appears in both files: a subagent of `agentType` "fork" (2.1.307–
+  2.1.310) opens its file with a copy of the entry whose `Agent` call
+  spawned it — same message id, usage and tool_use id, under its own uuid and
+  time. Read as it stands, one session counted 9 responses and 9 Agent calls
+  twice, so an assistant entry whose message id an earlier file carried is
+  skipped, by `ReadFile` and `Scan` alike. No other id appeared in two files.
+  Left out, a session that fanned out showed 7.6M of the 22.8M tokens it
+  spent.
   `ReadFile` and `Scan` both read them; a subagent's steps carry `Step.Agent`,
   and its user-role entries are never prompts — its opening one is the task
   the parent wrote, shaped exactly like a typed turn. Its tool count and span
   match the `<tool_uses>` and `<duration_ms>` the parent's task notification
   states; the notification's `subagent_tokens` is its final context size, a
-  level, and is not read. Nesting (`spawnDepth` above 1) and a subagent's own
-  compaction were never surveyed: the first would be read flat, the second is
+  level, and is not read. A subagent's own subagents (`spawnDepth` 2, naming
+  a `parentAgentId`; 2 surveyed) are written flat into the same directory
+  and read flat. A subagent's own compaction was never surveyed; it is
   counted as skipped rather than put among the session's compactions.
   `agentName` on an entry is the session's own agent, not a subagent's.
 

@@ -37,6 +37,9 @@ type entry struct {
 	IsSidechain bool   `json:"isSidechain"`
 	AgentName   string `json:"agentName"`
 	IsMeta      bool   `json:"isMeta"`
+	// isCompactSummary marks the user-role entry carrying the summary a
+	// compaction left, which the CLI wrote and nobody typed.
+	IsCompactSummary bool `json:"isCompactSummary"`
 
 	// origin says who put a user-role entry there: "human" on what somebody
 	// typed, "task-notification" on a background task finishing. Written by
